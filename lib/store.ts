@@ -365,6 +365,9 @@ export function buildDashboardStats(
     totalOutstanding: sum(summaries, (c) => c.outstanding),
     totalOverdue: sum(summaries, (c) => c.overdue),
     totalAdvance: sum(summaries, (c) => c.advance),
+    customerCount: summaries.length,
+    customersWithBalance: summaries.filter((c) => c.outstanding > 0).length,
+    customersOverdue: summaries.filter((c) => c.overdue > 0).length,
     currentMonth: {
       name: formatMonth(currentMonth),
       sold: monthTotals.materialSold,

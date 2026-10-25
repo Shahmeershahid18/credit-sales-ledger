@@ -1,83 +1,64 @@
 'use client';
 
 import React from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { format, parseISO, addMonths, subMonths } from 'date-fns';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-import { getCurrentMonthStr } from '@/lib/format';
+import { useRouter } from 'next/navigation';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatMonth, getCurrentMonthStr } from '@/lib/format';
 
 interface MonthPickerProps {
   currentMonth: string; // YYYY-MM
 }
 
+function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return d.toISOString().slice(0, 7);
+}
+
 export function MonthPicker({ currentMonth }: MonthPickerProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const currentDate = parseISO(`${currentMonth}-01`);
-
-  const setMonth = (newMonthStr: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('month', newMonthStr);
-    router.push(`/reports/monthly?${params.toString()}`);
-  };
-
-  const handlePrev = () => {
-    const prev = subMonths(currentDate, 1);
-    setMonth(format(prev, 'yyyy-MM'));
-  };
-
-  const handleNext = () => {
-    const next = addMonths(currentDate, 1);
-    setMonth(format(next, 'yyyy-MM'));
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.value) {
-      setMonth(e.target.value);
-    }
-  };
+  const thisMonth = getCurrentMonthStr();
+  const go = (month: string) => router.push(`/reports/monthly?month=${month}`);
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center bg-white border border-zinc-200/90 rounded-2xl p-1 shadow-xs">
+      <div className="flex items-center h-9 rounded-lg border border-zinc-200 bg-white">
         <button
-          onClick={handlePrev}
-          className="p-2 hover:bg-zinc-100 rounded-xl text-zinc-600 transition-colors"
-          title="Previous Month"
+          type="button"
+          onClick={() => go(shiftMonth(currentMonth, -1))}
+          className="w-9 h-full flex items-center justify-center text-zinc-500 hover:text-zinc-900"
+          aria-label="Previous month"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-
-        <div className="relative flex items-center px-3 py-1 gap-2">
-          <Calendar className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span className="text-sm font-bold text-zinc-900 whitespace-nowrap min-w-[120px] text-center">
-            {format(currentDate, 'MMMM yyyy')}
-          </span>
+        <label className="relative h-full px-2 flex items-center text-sm font-medium text-zinc-900 min-w-[8.5rem] justify-center cursor-pointer">
+          {formatMonth(currentMonth)}
           <input
             type="month"
             value={currentMonth}
-            onChange={handleChange}
-            className="absolute inset-0 opacity-0 cursor-pointer w-full"
-            title="Pick a specific month"
+            onChange={(e) => e.target.value && go(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            aria-label="Pick a month"
           />
-        </div>
-
+        </label>
         <button
-          onClick={handleNext}
-          className="p-2 hover:bg-zinc-100 rounded-xl text-zinc-600 transition-colors"
-          title="Next Month"
+          type="button"
+          onClick={() => go(shiftMonth(currentMonth, 1))}
+          className="w-9 h-full flex items-center justify-center text-zinc-500 hover:text-zinc-900"
+          aria-label="Next month"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
-
-      <button
-        onClick={() => setMonth(getCurrentMonthStr())}
-        className="px-3 py-2 text-xs font-semibold rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 transition-colors hidden sm:inline-block"
-      >
-        Current Month
-      </button>
+      {currentMonth !== thisMonth && (
+        <button
+          type="button"
+          onClick={() => go(thisMonth)}
+          className="h-9 px-3 rounded-lg text-sm font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100"
+        >
+          This month
+        </button>
+      )}
     </div>
   );
 }

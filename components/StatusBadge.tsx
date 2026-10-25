@@ -1,52 +1,30 @@
 import React from 'react';
 import { CustomerStatus } from '@/lib/types';
-import { AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 
 interface StatusBadgeProps {
   status: CustomerStatus | 'Paid' | 'Pending' | 'Overdue' | '—';
   className?: string;
-  showIcon?: boolean;
 }
 
-export function StatusBadge({ status, className = '', showIcon = true }: StatusBadgeProps) {
-  const normalized = status.toLowerCase();
+const styles = {
+  paid: { label: 'Paid', className: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20', dot: 'bg-emerald-500' },
+  overdue: { label: 'Overdue', className: 'bg-rose-50 text-rose-700 ring-rose-600/20', dot: 'bg-rose-500' },
+  pending: { label: 'Payment Pending', className: 'bg-amber-50 text-amber-800 ring-amber-600/20', dot: 'bg-amber-500' },
+};
 
-  if (normalized === 'paid') {
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs ${className}`}
-      >
-        {showIcon && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
-        <span>Paid</span>
-      </span>
-    );
-  }
+export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
+  const style = styles[status.toLowerCase() as keyof typeof styles];
 
-  if (normalized === 'overdue') {
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-wide bg-rose-50 text-rose-700 border border-rose-200/80 shadow-xs animate-pulse ${className}`}
-      >
-        {showIcon && <AlertCircle className="w-3.5 h-3.5 text-rose-600" />}
-        <span>Overdue</span>
-      </span>
-    );
-  }
-
-  if (normalized === 'pending' || normalized === 'payment pending') {
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-wide bg-amber-50 text-amber-800 border border-amber-200/90 shadow-xs ${className}`}
-      >
-        {showIcon && <Clock className="w-3.5 h-3.5 text-amber-600" />}
-        <span>Payment Pending</span>
-      </span>
-    );
+  if (!style) {
+    return <span className={`text-xs text-zinc-400 ${className}`}>—</span>;
   }
 
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 text-xs text-slate-400 font-medium ${className}`}>
-      —
+    <span
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset whitespace-nowrap ${style.className} ${className}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {style.label}
     </span>
   );
 }

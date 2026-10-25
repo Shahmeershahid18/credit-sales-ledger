@@ -3,63 +3,71 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Customer } from '@/lib/types';
 import { formatRs, getTodayDateStr, calculateDueDate, formatDate } from '@/lib/format';
 import { addSaleAction } from '@/app/actions/sales';
-import { Calculator, Calendar, Tag, Check, Loader2, UserPlus } from 'lucide-react';
+import { Check, Loader2, UserPlus, Plus } from 'lucide-react';
+import { Field, FormError, Segmented, buttonClass, inputClass } from './ui';
+
+export type CustomerOption = { id: string; name: string; phone?: string | null };
+export type MaterialOption = { material: string; unit: string; rate: number };
 
 interface SaleFormProps {
-  customers: Customer[];
+  customers: CustomerOption[];
+  materials?: MaterialOption[];
   preselectedCustomerId?: string;
-  onSuccess?: () => void;
+  cancelHref: string;
 }
 
-export function SaleForm({ customers, preselectedCustomerId, onSuccess }: SaleFormProps) {
+const BASE_UNITS = ['bag', 'ton', 'kg', 'truck', 'pcs', 'ft', 'sqft', 'litre', 'can'];
+type Term = 30 | 60 | 90 | 'custom';
+
+export function SaleForm({ customers, materials = [], preselectedCustomerId, cancelHref }: SaleFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [customerId, setCustomerId] = useState(preselectedCustomerId || (customers[0]?.id || ''));
+  const [customerId, setCustomerId] = useState(preselectedCustomerId || '');
   const [saleDate, setSaleDate] = useState(getTodayDateStr());
   const [material, setMaterial] = useState('');
-  const [quantity, setQuantity] = useState<number | string>(1);
+  const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('bag');
-  const [rate, setRate] = useState<number | string>('');
-  const [creditDays, setCreditDays] = useState<number>(30);
-  const [customDays, setCustomDays] = useState<string>('');
-  const [isCustomDays, setIsCustomDays] = useState(false);
+  const [rate, setRate] = useState('');
+  const [term, setTerm] = useState<Term>(30);
+  const [customDays, setCustomDays] = useState('');
+  const [showNotes, setShowNotes] = useState(false);
   const [notes, setNotes] = useState('');
 
-  // Auto calculate Amount and Due Date
   const parsedQty = Number(quantity) || 0;
   const parsedRate = Number(rate) || 0;
-  const calculatedAmount = parsedQty * parsedRate;
-  const activeDays = isCustomDays ? Number(customDays) || 0 : creditDays;
-  const calculatedDueDate = calculateDueDate(saleDate, activeDays);
+  const amount = parsedQty * parsedRate;
+  const creditDays = term === 'custom' ? Number(customDays) || 0 : term;
+  const dueDate = calculateDueDate(saleDate, creditDays);
+  const units = BASE_UNITS.includes(unit) ? BASE_UNITS : [...BASE_UNITS, unit];
+
+  if (customers.length === 0) {
+    return <NoCustomersYet />;
+  }
+
+  const handleMaterialChange = (value: string) => {
+    setMaterial(value);
+    // Picking a material used before fills in its last unit and rate
+    const match = materials.find((m) => m.material.toLowerCase() === value.trim().toLowerCase());
+    if (match) {
+      setUnit(match.unit);
+      if (!rate) setRate(String(match.rate));
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!customerId) {
-      setErrorMsg('Please select a customer');
-      return;
-    }
-    if (!material.trim()) {
-      setErrorMsg('Please enter the material or item name');
-      return;
-    }
-    if (parsedQty <= 0) {
-      setErrorMsg('Quantity must be greater than 0');
-      return;
-    }
-    if (parsedRate <= 0) {
-      setErrorMsg('Rate must be greater than 0');
-      return;
-    }
-    if (isCustomDays && (customDays.trim() === '' || !Number.isInteger(Number(customDays)) || Number(customDays) < 0)) {
-      setErrorMsg('Enter custom credit days as a whole number (0 or more)');
-      return;
+    if (!customerId) return setErrorMsg('Please select a customer.');
+    if (!material.trim()) return setErrorMsg('Please enter the material.');
+    if (parsedQty <= 0) return setErrorMsg('Quantity must be greater than 0.');
+    if (parsedRate <= 0) return setErrorMsg('Rate must be greater than 0.');
+    if (term === 'custom' && (customDays.trim() === '' || !Number.isInteger(Number(customDays)) || Number(customDays) < 0)) {
+      return setErrorMsg('Enter credit days as a whole number (0 or more).');
     }
 
     setIsSubmitting(true);
@@ -67,293 +75,201 @@ export function SaleForm({ customers, preselectedCustomerId, onSuccess }: SaleFo
     formData.append('customer_id', customerId);
     formData.append('sale_date', saleDate);
     formData.append('material', material);
-    formData.append('quantity', parsedQty.toString());
+    formData.append('quantity', String(parsedQty));
     formData.append('unit', unit);
-    formData.append('rate', parsedRate.toString());
-    formData.append('credit_days', activeDays.toString());
-    if (notes) formData.append('notes', notes);
+    formData.append('rate', String(parsedRate));
+    formData.append('credit_days', String(creditDays));
+    if (notes.trim()) formData.append('notes', notes);
 
     const result = await addSaleAction(formData);
-    setIsSubmitting(false);
 
     if (result.success) {
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        router.push(`/customers/${customerId}`);
-        router.refresh();
-      }
+      router.push(`/customers/${customerId}`);
+      router.refresh();
     } else {
-      setErrorMsg(result.error || 'Failed to save sale');
+      setIsSubmitting(false);
+      setErrorMsg(result.error || 'Failed to save sale.');
     }
   };
 
-  const commonMaterials = [
-    { name: 'DG Cement', unit: 'bag', defaultRate: 1500 },
-    { name: 'Bestway Cement', unit: 'bag', defaultRate: 1350 },
-    { name: 'Steel 60-Grade (TMT)', unit: 'ton', defaultRate: 260000 },
-    { name: 'Sand (Ravi)', unit: 'truck', defaultRate: 25000 },
-    { name: 'Crush (Margalla)', unit: 'truck', defaultRate: 65000 },
-    { name: 'Red Bricks', unit: 'pcs', defaultRate: 15 },
-  ];
-
-  if (customers.length === 0) {
-    return <NoCustomersYet />;
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {errorMsg && (
-        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
-          {errorMsg}
-        </div>
-      )}
+    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+      <FormError message={errorMsg} />
 
-      {/* Customer Selection */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider">
-          Customer <span className="text-rose-500">*</span>
-        </label>
-        <select
-          value={customerId}
-          onChange={(e) => setCustomerId(e.target.value)}
-          className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 bg-white text-zinc-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-          required
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {!preselectedCustomerId && (
+          <Field label="Customer" htmlFor="customer" className="col-span-2">
+            <select id="customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputClass} required>
+              <option value="" disabled>
+                Select customer…
+              </option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Field
+          label="Sale date"
+          htmlFor="sale_date"
+          className={preselectedCustomerId ? 'col-span-2 sm:col-span-3 sm:max-w-[13rem]' : 'col-span-2 sm:col-span-1'}
         >
-          {customers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} {c.phone ? `(${c.phone})` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
+          <input id="sale_date" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} className={inputClass} required />
+        </Field>
 
-      {/* Date */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider flex items-center gap-1.5">
-          <Calendar className="w-3.5 h-3.5 text-zinc-400" />
-          Sale Date <span className="text-rose-500">*</span>
-        </label>
-        <input
-          type="date"
-          value={saleDate}
-          onChange={(e) => setSaleDate(e.target.value)}
-          className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-          required
-        />
-      </div>
-
-      {/* Quick Material Presets */}
-      <div className="space-y-2">
-        <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider flex items-center gap-1.5">
-          <Tag className="w-3.5 h-3.5 text-zinc-400" />
-          Material / Item <span className="text-rose-500">*</span>
-        </label>
-
-        {/* Quick Suggestions Chips */}
-        <div className="flex flex-wrap gap-1.5 pb-1">
-          {commonMaterials.map((mat) => (
-            <button
-              type="button"
-              key={mat.name}
-              onClick={() => {
-                setMaterial(mat.name);
-                setUnit(mat.unit);
-                if (!rate) setRate(mat.defaultRate);
-              }}
-              className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 transition-colors"
-            >
-              + {mat.name}
-            </button>
-          ))}
-        </div>
-
-        <input
-          type="text"
-          placeholder="e.g. DG Cement Bags, Steel 60 Grade..."
-          value={material}
-          onChange={(e) => setMaterial(e.target.value)}
-          className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-          required
-        />
-      </div>
-
-      {/* Quantity, Unit & Rate */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Quantity */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider">
-            Quantity <span className="text-rose-500">*</span>
-          </label>
+        <Field label="Material" htmlFor="material" className="col-span-2">
           <input
-            type="number"
-            step="any"
-            min="0.01"
-            placeholder="100"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            id="material"
+            type="text"
+            list="material-options"
+            autoComplete="off"
+            placeholder="e.g. Cement, Steel 60-grade"
+            value={material}
+            onChange={(e) => handleMaterialChange(e.target.value)}
+            className={inputClass}
             required
           />
-        </div>
-
-        {/* Unit */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider">
-            Unit
-          </label>
-          <select
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-          >
-            <option value="bag">Bag</option>
-            <option value="ton">Ton</option>
-            <option value="truck">Truck / Dumper</option>
-            <option value="kg">Kg</option>
-            <option value="pcs">Pcs</option>
-            <option value="ft">Feet</option>
-            <option value="sqft">Sq. Ft</option>
+          <datalist id="material-options">
+            {materials.map((m) => (
+              <option key={m.material} value={m.material} />
+            ))}
+          </datalist>
+        </Field>
+        <Field label="Unit" htmlFor="unit">
+          <select id="unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputClass}>
+            {units.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
           </select>
-        </div>
+        </Field>
 
-        {/* Rate */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider">
-            Rate per unit <span className="text-rose-500">*</span>
-          </label>
+        <Field label="Quantity" htmlFor="quantity">
           <input
+            id="quantity"
             type="number"
+            inputMode="decimal"
             step="any"
             min="0"
-            placeholder="1500"
-            value={rate}
-            onChange={(e) => setRate(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            placeholder="0"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            className={inputClass}
             required
           />
-        </div>
+        </Field>
+        <Field label="Rate (Rs.)" htmlFor="rate" hint={unit ? `per ${unit}` : undefined}>
+          <input
+            id="rate"
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min="0"
+            placeholder="0"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            className={inputClass}
+            required
+          />
+        </Field>
+        <Field label="Amount">
+          <div className="h-10 px-3 rounded-lg bg-zinc-50 border border-zinc-200 text-sm font-semibold text-zinc-900 flex items-center tabular-nums">
+            {formatRs(amount)}
+          </div>
+        </Field>
       </div>
 
-      {/* Auto-calculated Total Amount Display */}
-      <div className="bg-zinc-100 rounded-2xl p-4 border border-zinc-200/80 flex items-center justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
-            Total Sale Amount (Qty × Rate)
-          </p>
-          <p className="text-2xl font-extrabold text-zinc-900 mt-0.5">
-            {formatRs(calculatedAmount)}
-          </p>
-        </div>
-        <div className="p-3 bg-zinc-200/70 rounded-xl text-zinc-700">
-          <Calculator className="w-5 h-5" />
-        </div>
-      </div>
-
-      {/* Credit Terms (30 / 60 / 90 quick buttons) */}
-      <div className="space-y-2">
-        <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider flex items-center justify-between">
-          <span>Credit Days (Payment Term)</span>
-          <span className="text-emerald-700 font-bold normal-case">
-            Due on: {formatDate(calculatedDueDate)}
-          </span>
-        </label>
-
-        <div className="grid grid-cols-4 gap-2">
-          {[30, 60, 90].map((days) => (
-            <button
-              type="button"
-              key={days}
-              onClick={() => {
-                setCreditDays(days);
-                setIsCustomDays(false);
-              }}
-              className={`py-2.5 rounded-xl font-bold text-xs transition-all ${
-                !isCustomDays && creditDays === days
-                  ? 'bg-zinc-900 text-white shadow-xs ring-2 ring-zinc-900 ring-offset-1'
-                  : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'
-              }`}
-            >
-              {days} Days
-            </button>
-          ))}
-
-          <button
-            type="button"
-            onClick={() => setIsCustomDays(true)}
-            className={`py-2.5 rounded-xl font-bold text-xs transition-all ${
-              isCustomDays
-                ? 'bg-zinc-900 text-white shadow-xs ring-2 ring-zinc-900 ring-offset-1'
-                : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'
-            }`}
-          >
-            Custom
-          </button>
-        </div>
-
-        {isCustomDays && (
-          <div className="pt-2">
-            <input
-              type="number"
-              min="0"
-              step="1"
-              placeholder="Enter custom days (e.g. 15, 45, 120)..."
-              value={customDays}
-              onChange={(e) => setCustomDays(e.target.value)}
-              className="w-full px-3.5 py-2 rounded-xl border border-zinc-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-              autoFocus
+      <Field label="Credit term" hint={<>Due <span className="font-medium text-zinc-900">{formatDate(dueDate)}</span></>}>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="sm:w-80">
+            <Segmented<Term>
+              ariaLabel="Credit term"
+              value={term}
+              onChange={setTerm}
+              options={[
+                { label: '30 days', value: 30 },
+                { label: '60 days', value: 60 },
+                { label: '90 days', value: 90 },
+                { label: 'Custom', value: 'custom' },
+              ]}
             />
           </div>
-        )}
-      </div>
+          {term === 'custom' && (
+            <input
+              type="number"
+              inputMode="numeric"
+              min="0"
+              step="1"
+              placeholder="Days"
+              aria-label="Custom credit days"
+              value={customDays}
+              onChange={(e) => setCustomDays(e.target.value)}
+              className={`${inputClass} sm:w-28`}
+              autoFocus
+            />
+          )}
+        </div>
+      </Field>
 
-      {/* Notes */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider">
-          Notes / Site Reference (Optional)
-        </label>
-        <input
-          type="text"
-          placeholder="e.g. Site B second floor delivery, Truck # LES-491"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          className="w-full px-3.5 py-2.5 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-        />
-      </div>
+      {showNotes ? (
+        <Field label="Notes" htmlFor="notes" optional>
+          <input
+            id="notes"
+            type="text"
+            placeholder="Site, vehicle or bill reference"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className={inputClass}
+            autoFocus
+          />
+        </Field>
+      ) : (
+        <button type="button" onClick={() => setShowNotes(true)} className="text-sm font-medium text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1">
+          <Plus className="w-4 h-4" />
+          Add note
+        </button>
+      )}
 
-      {/* Submit Button */}
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="w-full py-3.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-sm transition-all shadow-md hover:shadow-lg disabled:opacity-60 flex items-center justify-center gap-2"
-      >
-        {isSubmitting ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>Recording Sale...</span>
-          </>
-        ) : (
-          <>
-            <Check className="w-4 h-4" />
-            <span>Record Credit Sale ({formatRs(calculatedAmount)})</span>
-          </>
-        )}
-      </button>
+      <FormFooter cancelHref={cancelHref} isSubmitting={isSubmitting} label={`Save sale · ${formatRs(amount)}`} />
     </form>
+  );
+}
+
+export function FormFooter({
+  cancelHref,
+  isSubmitting,
+  label,
+  variant = 'primary',
+}: {
+  cancelHref: string;
+  isSubmitting: boolean;
+  label: string;
+  variant?: 'primary' | 'success';
+}) {
+  return (
+    <div className="pt-4 border-t border-zinc-100 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+      <Link href={cancelHref} className={buttonClass('secondary', 'h-10')}>
+        Cancel
+      </Link>
+      <button type="submit" disabled={isSubmitting} className={buttonClass(variant, 'h-10 px-5')}>
+        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+        {isSubmitting ? 'Saving…' : label}
+      </button>
+    </div>
   );
 }
 
 export function NoCustomersYet() {
   return (
-    <div className="text-center space-y-3 py-6">
-      <p className="text-sm font-bold text-zinc-800">No customers yet</p>
-      <p className="text-xs text-zinc-500">Add a customer first, then record sales and payments for them.</p>
-      <Link
-        href="/customers/new"
-        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold hover:bg-zinc-800"
-      >
-        <UserPlus className="w-3.5 h-3.5" />
-        <span>Add First Customer</span>
+    <div className="text-center py-8">
+      <p className="text-sm font-medium text-zinc-900">No customers yet</p>
+      <p className="text-sm text-zinc-500 mt-1">Add a customer first, then record sales and payments.</p>
+      <Link href="/customers/new" className={buttonClass('primary', 'mt-4')}>
+        <UserPlus className="w-4 h-4" />
+        Add customer
       </Link>
     </div>
   );

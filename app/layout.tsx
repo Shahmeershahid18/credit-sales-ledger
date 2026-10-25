@@ -13,15 +13,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Credit Sale & Monthly Monitoring',
-  description: 'Track material given on credit, payments received, and overdue customer balances with FIFO allocation.',
+  title: {
+    default: 'Credit Ledger',
+    template: '%s · Credit Ledger',
+  },
+  description: 'Track credit sales, payments received and overdue balances customer-wise.',
+  applicationName: 'Credit Ledger',
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  themeColor: '#18181b',
+  themeColor: '#059669',
 };
 
 export default function RootLayout({
@@ -31,7 +34,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900 font-sans">
+      <body className="min-h-full flex flex-col bg-zinc-50 text-zinc-900 font-sans">
         {children}
       </body>
     </html>

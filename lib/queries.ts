@@ -316,6 +316,43 @@ export async function getMonthlyReportData(month: string): Promise<MonthlyReport
   );
 }
 
+export type MaterialSuggestion = { material: string; unit: string; rate: number };
+
+/**
+ * Materials sold before, most recent first, with the unit and rate last used.
+ * Powers autocomplete on the sale form.
+ */
+export async function getMaterialSuggestions(limit = 30): Promise<MaterialSuggestion[]> {
+  const db = await getDb();
+
+  let recent: { material: string; unit: string | null; rate: number }[];
+  if (!db) {
+    recent = [...getDemoData().sales].sort(
+      (a, b) => b.sale_date.localeCompare(a.sale_date) || b.created_at.localeCompare(a.created_at)
+    );
+  } else {
+    const { data, error } = await db
+      .from('credit_sales')
+      .select('material, unit, rate')
+      .order('sale_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    recent = data ?? [];
+  }
+
+  const seen = new Set<string>();
+  const suggestions: MaterialSuggestion[] = [];
+  for (const s of recent) {
+    const key = s.material.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    suggestions.push({ material: s.material.trim(), unit: s.unit || 'bag', rate: num(s.rate) });
+    if (suggestions.length >= limit) break;
+  }
+  return suggestions;
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------

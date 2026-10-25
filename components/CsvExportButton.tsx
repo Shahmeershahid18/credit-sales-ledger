@@ -2,54 +2,39 @@
 
 import React from 'react';
 import { Download } from 'lucide-react';
+import { buttonClass } from './ui';
 
 interface CsvExportButtonProps {
   filename: string;
   headers: string[];
   rows: (string | number)[][];
-  title?: string;
+  disabled?: boolean;
 }
 
-export function CsvExportButton({
-  filename,
-  headers,
-  rows,
-  title = 'Export CSV',
-}: CsvExportButtonProps) {
-  const handleExport = () => {
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) =>
-        row
-          .map((cell) => {
-            const str = String(cell ?? '');
-            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-              return `"${str.replace(/"/g, '""')}"`;
-            }
-            return str;
-          })
-          .join(',')
-      ),
-    ].join('\n');
+function csvCell(cell: string | number) {
+  const str = String(cell ?? '');
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+export function CsvExportButton({ filename, headers, rows, disabled = false }: CsvExportButtonProps) {
+  const handleExport = () => {
+    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+    // BOM so Excel opens the file as UTF-8
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `${filename}.csv`);
+    link.href = url;
+    link.download = `${filename}.csv`;
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <button
-      onClick={handleExport}
-      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold transition-colors shadow-xs"
-      title="Download spreadsheet CSV"
-    >
-      <Download className="w-3.5 h-3.5 text-zinc-600" />
-      <span>{title}</span>
+    <button type="button" onClick={handleExport} disabled={disabled} className={buttonClass('secondary')}>
+      <Download className="w-4 h-4" />
+      Export CSV
     </button>
   );
 }

@@ -1,52 +1,47 @@
-'use client';
-
 import React from 'react';
 import { formatRs, formatDate } from '@/lib/format';
-import { MessageSquare } from 'lucide-react';
+import { MessageCircle } from 'lucide-react';
+import { buttonClass } from './ui';
 
 interface WhatsAppButtonProps {
   customerName: string;
   phone?: string | null;
   outstanding: number;
   dueDate?: string | null;
-  className?: string;
+  compact?: boolean;
 }
 
-export function WhatsAppButton({
-  customerName,
-  phone,
-  outstanding,
-  dueDate,
-  className = '',
-}: WhatsAppButtonProps) {
+/**
+ * Opens WhatsApp with a pre-filled payment reminder. Hidden when nothing is owed.
+ */
+export function WhatsAppButton({ customerName, phone, outstanding, dueDate, compact = false }: WhatsAppButtonProps) {
   if (outstanding <= 0) return null;
 
-  // Clean phone number (remove spaces, dashes, parentheses)
+  // Digits only; local 03xx numbers become 92 3xx
   let cleanPhone = phone ? phone.replace(/[^0-9]/g, '') : '';
   if (cleanPhone.startsWith('03')) {
     cleanPhone = '92' + cleanPhone.slice(1);
   }
 
-  const formattedAmount = formatRs(outstanding);
   const duePart = dueDate ? `, due on ${formatDate(dueDate)}` : '';
-
-  const message = `Salam ${customerName},\n\nThis is a gentle payment reminder from our ledger. Your current outstanding balance is ${formattedAmount}${duePart}.\n\nPlease arrange payment at your earliest convenience.\nThank you!`;
-
-  const encodedMessage = encodeURIComponent(message);
-  const waUrl = cleanPhone
-    ? `https://wa.me/${cleanPhone}?text=${encodedMessage}`
-    : `https://wa.me/?text=${encodedMessage}`;
+  const message = `Assalam o Alaikum ${customerName},\n\nThis is a reminder that your outstanding balance is ${formatRs(outstanding)}${duePart}.\n\nPlease arrange the payment at your earliest convenience. Thank you.`;
+  const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 
   return (
     <a
       href={waUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-xs ${className}`}
-      title={phone ? `Send WhatsApp reminder to ${phone}` : 'Open WhatsApp reminder draft'}
+      title={phone ? `Send reminder to ${phone}` : 'Open reminder in WhatsApp'}
+      aria-label="Send WhatsApp reminder"
+      className={
+        compact
+          ? 'w-8 h-8 rounded-md text-emerald-700 hover:bg-emerald-50 inline-flex items-center justify-center'
+          : buttonClass('secondary')
+      }
     >
-      <MessageSquare className="w-3.5 h-3.5" />
-      <span>WhatsApp Reminder</span>
+      <MessageCircle className="w-4 h-4 text-emerald-600" />
+      {!compact && <span className="hidden sm:inline">Reminder</span>}
     </a>
   );
 }

@@ -1,41 +1,35 @@
 import React from 'react';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { getMonthlyReportData } from '@/lib/queries';
 import { formatRs, getCurrentMonthStr, isValidMonthStr } from '@/lib/format';
 import { MonthPicker } from '@/components/MonthPicker';
 import { StatCard } from '@/components/StatCard';
 import { CsvExportButton } from '@/components/CsvExportButton';
-import {
-  FileBarChart,
-  ShoppingBag,
-  CreditCard,
-  CalendarClock,
-  Wallet,
-  ArrowUpRight,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react';
+import { EmptyState, PageHeader, cardClass } from '@/components/ui';
+import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Monthly report' };
 
 interface MonthlyReportPageProps {
   searchParams: Promise<{ month?: string }>;
 }
 
-export default async function MonthlyReportPage({ searchParams }: MonthlyReportPageProps) {
-  const resolvedParams = await searchParams;
-  const currentMonth = isValidMonthStr(resolvedParams.month) ? resolvedParams.month : getCurrentMonthStr();
+const amountOrDash = (value: number) => (value > 0 ? formatRs(value) : '—');
 
+function netClass(value: number) {
+  if (value > 0) return 'text-rose-700';
+  if (value < 0) return 'text-emerald-700';
+  return 'text-zinc-500';
+}
+
+export default async function MonthlyReportPage({ searchParams }: MonthlyReportPageProps) {
+  const { month } = await searchParams;
+  const currentMonth = isValidMonthStr(month) ? month : getCurrentMonthStr();
   const report = await getMonthlyReportData(currentMonth);
 
-  // Prepare CSV export data
-  const csvHeaders = [
-    'Customer',
-    'Material Sold (PKR)',
-    'Payment Received (PKR)',
-    'Payment Due (PKR)',
-    'Month Balance (PKR)',
-  ];
+  const csvHeaders = ['Customer', 'Material sold', 'Payment received', 'Payment due', 'Net (sold - received)'];
   const csvRows = report.customerBreakdown.map((c) => [
     c.customerName,
     c.materialSold,
@@ -46,169 +40,119 @@ export default async function MonthlyReportPage({ searchParams }: MonthlyReportP
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900 flex items-center gap-2.5">
-            <FileBarChart className="w-7 h-7 text-emerald-600" />
-            Monthly Monitoring Report
-          </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 mt-1">
-            Pick any month to inspect materials sold, payments collected, due dates and customer balance
-          </p>
-        </div>
+      <PageHeader
+        title="Monthly report"
+        description={report.formattedMonth}
+        actions={
+          <>
+            <MonthPicker currentMonth={currentMonth} />
+            <CsvExportButton
+              filename={`credit-ledger-${currentMonth}`}
+              headers={csvHeaders}
+              rows={csvRows}
+              disabled={csvRows.length === 0}
+            />
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <MonthPicker currentMonth={currentMonth} />
-          <CsvExportButton
-            filename={`Ledger_Report_${currentMonth}`}
-            headers={csvHeaders}
-            rows={csvRows}
-            title="Export CSV"
-          />
-        </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+        <StatCard label="Material sold" value={formatRs(report.materialSold)} icon={ShoppingBag} />
+        <StatCard label="Payment received" value={formatRs(report.paymentReceived)} icon={CreditCard} variant="success" />
+        <StatCard label="Payment due" value={formatRs(report.paymentDue)} icon={CalendarClock} variant="warning" subtext="Sales falling due this month" />
+        <StatCard label="Balance remaining" value={formatRs(report.balanceRemaining)} icon={Wallet} subtext="All customers, as of today" />
       </div>
 
-      {/* 4 Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label={`Material Sold (${report.formattedMonth})`}
-          value={formatRs(report.materialSold)}
-          icon={ShoppingBag}
-          variant="default"
-          subtext="Total credit value given this month"
-        />
-        <StatCard
-          label={`Payment Received (${report.formattedMonth})`}
-          value={formatRs(report.paymentReceived)}
-          icon={CreditCard}
-          variant="success"
-          subtext="Total cash & bank deposits collected"
-        />
-        <StatCard
-          label={`Payment Due in Month`}
-          value={formatRs(report.paymentDue)}
-          icon={CalendarClock}
-          variant="warning"
-          subtext="Sales maturing within this month"
-        />
-        <StatCard
-          label="Total Balance Remaining"
-          value={formatRs(report.balanceRemaining)}
-          icon={Wallet}
-          variant="default"
-          subtext="Unpaid across all customers, as of today"
-        />
-      </div>
-
-      {/* Customer-Wise Breakdown Table */}
-      <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
-          <div>
-            <h2 className="text-sm font-bold text-zinc-900 tracking-tight">
-              Customer Breakdown for {report.formattedMonth}
-            </h2>
-            <p className="text-xs text-zinc-500">
-              Customer activity and balance net changes during this calendar month
-            </p>
-          </div>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-zinc-200/70 text-zinc-800">
-            {report.customerBreakdown.length} Active Accounts
+      <section className={`${cardClass} overflow-hidden`}>
+        <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-zinc-900">By customer</h2>
+          <span className="text-xs text-zinc-500">
+            {report.customerBreakdown.length} {report.customerBreakdown.length === 1 ? 'customer' : 'customers'}
           </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs md:text-sm">
-            <thead>
-              <tr className="bg-zinc-100/75 border-b border-zinc-200 text-zinc-600 font-semibold tracking-wider uppercase text-[11px]">
-                <th className="py-3.5 px-4">Customer</th>
-                <th className="py-3.5 px-4 text-right">Material Sold</th>
-                <th className="py-3.5 px-4 text-right text-emerald-800">Payment Received</th>
-                <th className="py-3.5 px-4 text-right text-amber-900">Payment Due</th>
-                <th className="py-3.5 px-4 text-right">Month Net (Sold − Recv)</th>
-                <th className="py-3.5 px-4 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {report.customerBreakdown.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-zinc-400">
-                    <FileBarChart className="w-8 h-8 opacity-40 mx-auto mb-2" />
-                    <p className="font-bold text-zinc-700">No activity in {report.formattedMonth}</p>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      No sales or payments were recorded during this month. Use the Month Picker to view other months.
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                report.customerBreakdown.map((row) => {
-                  const isNetDebit = row.monthBalance > 0;
-                  return (
-                    <tr key={row.customerId} className="hover:bg-zinc-50/80 transition-colors">
-                      {/* Customer Name */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <Link
-                          href={`/customers/${row.customerId}`}
-                          className="font-bold text-zinc-900 hover:text-emerald-700 flex items-center gap-1 group"
-                        >
-                          <span className="truncate max-w-[200px]">{row.customerName}</span>
-                          <ArrowUpRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-emerald-600" />
+        {report.customerBreakdown.length === 0 ? (
+          <EmptyState
+            icon={<FileBarChart className="w-5 h-5" />}
+            title={`No activity in ${report.formattedMonth}`}
+            description="No sales, payments or due dates fall in this month."
+          />
+        ) : (
+          <>
+            {/* Mobile: list */}
+            <ul className="md:hidden divide-y divide-zinc-100">
+              {report.customerBreakdown.map((row) => (
+                <li key={row.customerId} className="px-4 py-3">
+                  <Link href={`/customers/${row.customerId}`} className="font-medium text-zinc-900 hover:text-emerald-700">
+                    {row.customerName}
+                  </Link>
+                  <dl className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <dt className="text-zinc-400">Sold</dt>
+                      <dd className="font-medium text-zinc-900 tabular-nums">{amountOrDash(row.materialSold)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-400">Received</dt>
+                      <dd className="font-medium text-emerald-700 tabular-nums">{amountOrDash(row.paymentReceived)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-400">Due</dt>
+                      <dd className="font-medium text-zinc-900 tabular-nums">{amountOrDash(row.paymentDue)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-400">Net</dt>
+                      <dd className={`font-medium tabular-nums ${netClass(row.monthBalance)}`}>{formatRs(row.monthBalance)}</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+
+            {/* Desktop: table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-zinc-50 border-b border-zinc-200 text-left text-xs font-medium text-zinc-500">
+                    <th className="py-2.5 px-4">Customer</th>
+                    <th className="py-2.5 px-4 text-right">Material sold</th>
+                    <th className="py-2.5 px-4 text-right">Payment received</th>
+                    <th className="py-2.5 px-4 text-right">Payment due</th>
+                    <th className="py-2.5 px-4 text-right">Net (sold − received)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {report.customerBreakdown.map((row) => (
+                    <tr key={row.customerId} className="hover:bg-zinc-50/70">
+                      <td className="py-3 px-4">
+                        <Link href={`/customers/${row.customerId}`} className="font-medium text-zinc-900 hover:text-emerald-700">
+                          {row.customerName}
                         </Link>
                       </td>
-
-                      {/* Material Sold */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-semibold text-zinc-900">
-                        {row.materialSold > 0 ? formatRs(row.materialSold) : '—'}
-                      </td>
-
-                      {/* Payment Received */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-bold text-emerald-700">
-                        {row.paymentReceived > 0 ? formatRs(row.paymentReceived) : '—'}
-                      </td>
-
-                      {/* Payment Due */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap text-amber-900 font-semibold">
-                        {row.paymentDue > 0 ? formatRs(row.paymentDue) : '—'}
-                      </td>
-
-                      {/* Month Balance */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-extrabold">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold ${
-                            isNetDebit
-                              ? 'bg-rose-50 text-rose-700'
-                              : row.monthBalance < 0
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-zinc-100 text-zinc-600'
-                          }`}
-                        >
-                          {isNetDebit ? (
-                            <TrendingUp className="w-3 h-3 text-rose-600" />
-                          ) : row.monthBalance < 0 ? (
-                            <TrendingDown className="w-3 h-3 text-emerald-600" />
-                          ) : null}
-                          {formatRs(Math.abs(row.monthBalance))}
-                        </span>
-                      </td>
-
-                      {/* Action */}
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <Link
-                          href={`/customers/${row.customerId}`}
-                          className="px-3 py-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold text-xs inline-flex items-center gap-1"
-                        >
-                          <span>Open Ledger</span>
-                          <ArrowUpRight className="w-3 h-3" />
-                        </Link>
+                      <td className="py-3 px-4 text-right tabular-nums text-zinc-900">{amountOrDash(row.materialSold)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-emerald-700">{amountOrDash(row.paymentReceived)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-zinc-900">{amountOrDash(row.paymentDue)}</td>
+                      <td className={`py-3 px-4 text-right tabular-nums font-medium ${netClass(row.monthBalance)}`}>
+                        {formatRs(row.monthBalance)}
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-zinc-50 border-t border-zinc-200 font-semibold text-zinc-900">
+                    <td className="py-3 px-4">Total</td>
+                    <td className="py-3 px-4 text-right tabular-nums">{formatRs(report.materialSold)}</td>
+                    <td className="py-3 px-4 text-right tabular-nums text-emerald-700">{formatRs(report.paymentReceived)}</td>
+                    <td className="py-3 px-4 text-right tabular-nums">{formatRs(report.paymentDue)}</td>
+                    <td className={`py-3 px-4 text-right tabular-nums ${netClass(report.materialSold - report.paymentReceived)}`}>
+                      {formatRs(report.materialSold - report.paymentReceived)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

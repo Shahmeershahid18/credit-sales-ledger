@@ -1,52 +1,35 @@
-'use client';
-
 import React from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
 interface CreditDaysFilterProps {
   currentFilter?: number;
 }
 
+const OPTIONS = [
+  { label: 'All terms', value: undefined },
+  { label: '30 days', value: 30 },
+  { label: '60 days', value: 60 },
+  { label: '90 days', value: 90 },
+];
+
 export function CreditDaysFilter({ currentFilter }: CreditDaysFilterProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const handleSelect = (days?: number) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (days) {
-      params.set('days', days.toString());
-    } else {
-      params.delete('days');
-    }
-    router.push(`/overdue?${params.toString()}`);
-  };
-
-  const options = [
-    { label: 'All Terms', value: undefined },
-    { label: '30 Days Term', value: 30 },
-    { label: '60 Days Term', value: 60 },
-    { label: '90 Days Term', value: 90 },
-  ];
-
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-xs font-semibold text-zinc-500 mr-1">Credit Terms:</span>
-      {options.map((opt) => {
-        const isSelected = currentFilter === opt.value || (!currentFilter && opt.value === undefined);
+    <nav aria-label="Credit term" className="flex gap-1 p-1 rounded-lg bg-zinc-100 overflow-x-auto self-start">
+      {OPTIONS.map((opt) => {
+        const active = currentFilter === opt.value;
         return (
-          <button
+          <Link
             key={opt.label}
-            onClick={() => handleSelect(opt.value)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
-              isSelected
-                ? 'bg-zinc-900 text-white shadow-xs'
-                : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'
+            href={opt.value ? `/overdue?days=${opt.value}` : '/overdue'}
+            aria-current={active ? 'page' : undefined}
+            className={`h-8 px-3 rounded-md text-sm font-medium whitespace-nowrap flex items-center ${
+              active ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
             }`}
           >
             {opt.label}
-          </button>
+          </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }

@@ -3,146 +3,72 @@ import Link from 'next/link';
 import { CustomerSummary } from '@/lib/types';
 import { formatRs, formatDate } from '@/lib/format';
 import { StatusBadge } from './StatusBadge';
-import { Phone, MapPin, ChevronRight, PlusCircle, ArrowUpRight } from 'lucide-react';
+import { Phone, Plus, ArrowDownLeft } from 'lucide-react';
 
 interface CustomerCardProps {
   customer: CustomerSummary;
 }
 
 export function CustomerCard({ customer }: CustomerCardProps) {
+  const outstandingColor =
+    customer.outstanding > 0 ? (customer.overdue > 0 ? 'text-rose-700' : 'text-amber-700') : 'text-zinc-900';
+
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200/90 hover:border-zinc-300 p-5 shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between group">
-      <div>
-        {/* Top Header: Name + Badge */}
-        <div className="flex items-start justify-between gap-3 mb-4">
+    <div className="bg-white rounded-xl border border-zinc-200 shadow-xs hover:border-zinc-300 transition-colors flex flex-col">
+      <Link href={`/customers/${customer.customer_id}`} className="p-4 sm:p-5 flex-1 group">
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <Link
-              href={`/customers/${customer.customer_id}`}
-              className="text-lg font-bold text-zinc-900 hover:text-emerald-700 transition-colors flex items-center gap-1 group-hover:translate-x-0.5 transform duration-150"
-            >
-              <span className="truncate">{customer.name}</span>
-              <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-emerald-600 shrink-0" />
-            </Link>
-
-            {/* Contact details */}
-            <div className="flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-zinc-500 mt-1">
-              {customer.phone && (
-                <span className="flex items-center gap-1">
-                  <Phone className="w-3 h-3 text-zinc-400" />
-                  {customer.phone}
-                </span>
-              )}
-              {customer.address && (
-                <span className="flex items-center gap-1 truncate max-w-[200px]" title={customer.address}>
-                  <MapPin className="w-3 h-3 text-zinc-400" />
-                  {customer.address}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <StatusBadge status={customer.status} />
-        </div>
-
-        {/* 4 Metrics Grid (Matching screenshot layout) */}
-        <div className="grid grid-cols-2 gap-2.5 my-3">
-          {/* Total Credit Sale */}
-          <div className="bg-zinc-100/80 rounded-xl p-3 border border-zinc-200/50">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Total Credit Sale
-            </p>
-            <p className="text-base font-bold text-zinc-900 mt-0.5">
-              {formatRs(customer.total_credit_sale)}
-            </p>
-          </div>
-
-          {/* Payment Received (Green) */}
-          <div className="bg-emerald-50/70 rounded-xl p-3 border border-emerald-200/50">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">
-              Payment Received
-            </p>
-            <p className="text-base font-bold text-emerald-700 mt-0.5">
-              {formatRs(customer.payment_received)}
-            </p>
-          </div>
-
-          {/* Outstanding */}
-          <div
-            className={`rounded-xl p-3 border ${
-              customer.outstanding > 0
-                ? customer.overdue > 0
-                  ? 'bg-rose-50/70 border-rose-200/50'
-                  : 'bg-amber-50/70 border-amber-200/50'
-                : 'bg-zinc-100/80 border-zinc-200/50'
-            }`}
-          >
-            <p
-              className={`text-[11px] font-semibold uppercase tracking-wider ${
-                customer.outstanding > 0
-                  ? customer.overdue > 0
-                    ? 'text-rose-700'
-                    : 'text-amber-800'
-                  : 'text-zinc-500'
-              }`}
-            >
-              Outstanding
-            </p>
-            <p
-              className={`text-base font-bold mt-0.5 ${
-                customer.outstanding > 0
-                  ? customer.overdue > 0
-                    ? 'text-rose-700'
-                    : 'text-amber-900'
-                  : 'text-zinc-800'
-              }`}
-            >
-              {formatRs(customer.outstanding)}
-            </p>
-            {customer.advance > 0 && (
-              <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
-                Advance: {formatRs(customer.advance)}
+            <p className="font-semibold text-zinc-900 truncate group-hover:text-emerald-700">{customer.name}</p>
+            {customer.phone && (
+              <p className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1">
+                <Phone className="w-3 h-3" />
+                {customer.phone}
               </p>
             )}
           </div>
+          <StatusBadge status={customer.status} />
+        </div>
 
-          {/* Credit Due Date */}
-          <div className="bg-zinc-100/80 rounded-xl p-3 border border-zinc-200/50">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Due Date
-            </p>
-            <p className="text-sm font-bold text-zinc-800 mt-1 truncate">
-              {customer.next_due_date ? formatDate(customer.next_due_date) : 'No due sales'}
-            </p>
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <div>
+            <dt className="text-xs text-zinc-500">Total credit sale</dt>
+            <dd className="font-medium text-zinc-900 tabular-nums">{formatRs(customer.total_credit_sale)}</dd>
           </div>
-        </div>
-      </div>
+          <div>
+            <dt className="text-xs text-zinc-500">Payment received</dt>
+            <dd className="font-medium text-emerald-700 tabular-nums">{formatRs(customer.payment_received)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-zinc-500">Outstanding</dt>
+            <dd className={`font-semibold tabular-nums ${outstandingColor}`}>{formatRs(customer.outstanding)}</dd>
+            {customer.advance > 0 && (
+              <dd className="text-xs text-emerald-700">Advance {formatRs(customer.advance)}</dd>
+            )}
+          </div>
+          <div>
+            <dt className="text-xs text-zinc-500">Next due date</dt>
+            <dd className="font-medium text-zinc-900">
+              {customer.next_due_date ? formatDate(customer.next_due_date) : '—'}
+            </dd>
+          </div>
+        </dl>
+      </Link>
 
-      {/* Action Footer */}
-      <div className="pt-3 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs font-semibold">
+      <div className="px-4 sm:px-5 py-2.5 border-t border-zinc-100 flex items-center justify-end gap-1">
         <Link
-          href={`/customers/${customer.customer_id}`}
-          className="inline-flex items-center gap-1 text-zinc-600 hover:text-zinc-900 font-medium py-1"
+          href={`/customers/${customer.customer_id}/sale/new`}
+          className="h-8 px-2.5 rounded-md text-xs font-medium text-zinc-700 hover:bg-zinc-100 flex items-center gap-1"
         >
-          <span>Open Ledger</span>
-          <ArrowUpRight className="w-3.5 h-3.5" />
+          <Plus className="w-3.5 h-3.5" />
+          Sale
         </Link>
-
-        <div className="flex items-center gap-1.5">
-          <Link
-            href={`/customers/${customer.customer_id}/sale/new`}
-            className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 transition-colors flex items-center gap-1"
-          >
-            <PlusCircle className="w-3 h-3 text-zinc-600" />
-            <span>Sale</span>
-          </Link>
-          <Link
-            href={`/customers/${customer.customer_id}/payment/new`}
-            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1"
-          >
-            <PlusCircle className="w-3 h-3 text-emerald-100" />
-            <span>Payment</span>
-          </Link>
-        </div>
+        <Link
+          href={`/customers/${customer.customer_id}/payment/new`}
+          className="h-8 px-2.5 rounded-md text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex items-center gap-1"
+        >
+          <ArrowDownLeft className="w-3.5 h-3.5" />
+          Payment
+        </Link>
       </div>
     </div>
   );

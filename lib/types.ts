@@ -130,6 +130,9 @@ export type DashboardStats = {
   totalOutstanding: number;
   totalOverdue: number;
   totalAdvance: number;
+  customerCount: number;
+  customersWithBalance: number;
+  customersOverdue: number;
   currentMonth: {
     name: string;
     sold: number;

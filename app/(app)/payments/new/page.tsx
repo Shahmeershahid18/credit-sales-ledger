@@ -1,36 +1,28 @@
 import React from 'react';
-import Link from 'next/link';
-import { getCustomers } from '@/lib/queries';
+import type { Metadata } from 'next';
+import { getCustomerCards } from '@/lib/queries';
 import { PaymentForm } from '@/components/PaymentForm';
-import { ArrowLeft, ArrowDownLeft } from 'lucide-react';
+import { PageHeader, cardClass } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Record payment' };
 
-export default async function GlobalAddPaymentPage() {
-  const rawCustomers = await getCustomers();
+export default async function NewPaymentPage() {
+  const customers = await getCustomerCards();
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <Link
-          href="/"
-          className="p-2 rounded-xl bg-white border border-zinc-200 text-zinc-600 hover:text-zinc-900 transition-colors shadow-xs"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-zinc-900 tracking-tight flex items-center gap-2">
-            <ArrowDownLeft className="w-5 h-5 text-emerald-600" />
-            Record Payment Received
-          </h1>
-          <p className="text-xs text-zinc-500">
-            Apply received funds to customer account (FIFO oldest sale settlement)
-          </p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl border border-zinc-200/90 p-6 sm:p-8 shadow-xs">
-        <PaymentForm customers={rawCustomers} />
+      <PageHeader title="Record payment" backHref="/" />
+      <div className={`${cardClass} p-5 sm:p-6`}>
+        <PaymentForm
+          customers={customers.map((c) => ({
+            id: c.customer_id,
+            name: c.name,
+            outstanding: c.outstanding,
+            overdue: c.overdue,
+          }))}
+          cancelHref="/"
+        />
       </div>
     </div>
   );
