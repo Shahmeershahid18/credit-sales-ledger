@@ -13,7 +13,7 @@ interface NavigationProps {
 }
 
 const navItems = [
-  { label: 'Dashboard', href: '/', icon: LayoutDashboard, match: (p: string) => p === '/' },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, match: (p: string) => p === '/dashboard' },
   { label: 'Customers', href: '/customers', icon: Users, match: (p: string) => p.startsWith('/customers') },
   { label: 'Overdue', href: '/overdue', icon: AlertCircle, match: (p: string) => p.startsWith('/overdue') },
   { label: 'Monthly Report', href: '/reports/monthly', icon: FileBarChart, match: (p: string) => p.startsWith('/reports') },
@@ -39,7 +39,7 @@ export function Navigation({ isDemo, email }: NavigationProps) {
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-60 shrink-0 h-screen sticky top-0 bg-zinc-900 text-zinc-300 border-r border-zinc-800">
         <div className="px-5 h-16 flex items-center border-b border-zinc-800">
-          <Link href="/" aria-label="Credit Ledger home">
+          <Link href="/dashboard" aria-label="Credit Ledger home">
             <Logo markClassName="w-8 h-8" textClassName="text-white" />
           </Link>
         </div>
@@ -96,7 +96,7 @@ export function Navigation({ isDemo, email }: NavigationProps) {
 
       {/* Mobile top bar */}
       <header className="lg:hidden sticky top-0 z-40 h-14 px-4 bg-white/90 backdrop-blur border-b border-zinc-200 flex items-center justify-between">
-        <Link href="/" aria-label="Credit Ledger home">
+        <Link href="/dashboard" aria-label="Credit Ledger home">
           <Logo markClassName="w-7 h-7" />
         </Link>
         <div className="flex items-center gap-1.5">

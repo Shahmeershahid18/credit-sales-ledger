@@ -7,6 +7,7 @@ import { addPaymentAction, getCustomerSalesAction } from '@/app/actions/payments
 import { PaymentMethod, SaleOption } from '@/lib/types';
 import { Field, FormError, Segmented, inputClass } from './ui';
 import { FormFooter, NoCustomersYet } from './SaleForm';
+import { Select, SelectOption } from './Select';
 
 export type PaymentCustomerOption = { id: string; name: string; outstanding: number; overdue: number };
 
@@ -17,10 +18,22 @@ interface PaymentFormProps {
   cancelHref: string;
 }
 
-function saleLabel(s: SaleOption) {
-  const due = s.outstanding > 0 ? `${formatRs(s.outstanding)} due` : 'paid';
-  return `${formatDate(s.sale_date)} · ${s.material} · ${formatRs(s.amount)} (${due})`;
+function saleOption(s: SaleOption): SelectOption {
+  const qty = s.quantity ? ` · ${s.quantity} ${s.unit}` : '';
+  return {
+    value: s.id,
+    label: s.material,
+    description: `${formatDate(s.sale_date)}${qty} · ${formatRs(s.amount)}`,
+    meta: s.outstanding > 0 ? `${formatRs(s.outstanding)} due` : 'Paid',
+    disabled: s.outstanding <= 0,
+  };
 }
+
+const NOT_LINKED: SelectOption = {
+  value: '',
+  label: 'Not linked to a sale',
+  description: 'Applied to the oldest unpaid sales first',
+};
 
 export function PaymentForm({ customers, preselectedCustomerId, initialSales, cancelHref }: PaymentFormProps) {
   const router = useRouter();
@@ -105,16 +118,18 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {!preselectedCustomerId && (
           <Field label="Customer" htmlFor="customer" className="sm:col-span-2">
-            <select id="customer" value={customerId} onChange={(e) => handleCustomerChange(e.target.value)} className={inputClass} required>
-              <option value="" disabled>
-                Select customer…
-              </option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="customer"
+              value={customerId}
+              onChange={handleCustomerChange}
+              placeholder="Select customer…"
+              searchPlaceholder="Search customers…"
+              options={customers.map((c) => ({
+                value: c.id,
+                label: c.name,
+                meta: c.outstanding > 0 ? `${formatRs(c.outstanding)} due` : 'No balance',
+              }))}
+            />
           </Field>
         )}
         <Field label="Payment date" htmlFor="payment_date" className={preselectedCustomerId ? 'sm:col-span-3 sm:max-w-[13rem]' : ''}>
@@ -132,10 +147,10 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
       {selected && (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-sm">
           <span className="text-zinc-600">
-            Outstanding <span className="font-semibold text-zinc-900 tabular-nums">{formatRs(selected.outstanding)}</span>
+            Outstanding <span className="font-semibold text-zinc-900 tabular-nums whitespace-nowrap">{formatRs(selected.outstanding)}</span>
             {selected.overdue > 0 && (
               <>
-                {' · '}Overdue <span className="font-semibold text-rose-700 tabular-nums">{formatRs(selected.overdue)}</span>
+                {' · '}Overdue <span className="font-semibold text-rose-700 tabular-nums whitespace-nowrap">{formatRs(selected.overdue)}</span>
               </>
             )}
           </span>
@@ -161,20 +176,14 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
           optional
           hint={loadingSales ? 'Loading sales…' : customerSales?.length === 0 ? 'No credit sales yet' : undefined}
         >
-          <select
+          <Select
             id="sale"
             value={saleId}
-            onChange={(e) => handleSaleChange(e.target.value)}
+            onChange={handleSaleChange}
             disabled={loadingSales || !customerSales?.length}
-            className={inputClass}
-          >
-            <option value="">Not linked to a sale</option>
-            {customerSales?.map((s) => (
-              <option key={s.id} value={s.id} disabled={s.outstanding <= 0}>
-                {saleLabel(s)}
-              </option>
-            ))}
-          </select>
+            searchPlaceholder="Search material or date…"
+            options={[NOT_LINKED, ...(customerSales ?? []).map(saleOption)]}
+          />
         </Field>
       )}
 

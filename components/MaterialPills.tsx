@@ -6,6 +6,7 @@ import { Material } from '@/lib/types';
 import { formatRs } from '@/lib/format';
 import { deleteMaterialAction, saveMaterialAction } from '@/app/actions/materials';
 import { inputClass } from './ui';
+import { Select } from './Select';
 
 interface MaterialPillsProps {
   materials: Material[];
@@ -185,18 +186,14 @@ export function MaterialPills({
               className={`${inputClass} h-9 col-span-2 sm:col-span-1`}
               autoFocus
             />
-            <select
-              aria-label="Unit"
+            <Select
+              ariaLabel="Unit"
+              size="sm"
               value={draft.unit}
-              onChange={(e) => setDraft({ ...draft, unit: e.target.value })}
-              className={`${inputClass} h-9`}
-            >
-              {(units.includes(draft.unit) ? units : [...units, draft.unit]).map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
+              onChange={(unit) => setDraft({ ...draft, unit })}
+              searchable={false}
+              options={(units.includes(draft.unit) ? units : [...units, draft.unit]).map((u) => ({ value: u, label: u }))}
+            />
             <input
               type="number"
               inputMode="decimal"

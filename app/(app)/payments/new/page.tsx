@@ -12,7 +12,7 @@ export default async function NewPaymentPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <PageHeader title="Record payment" backHref="/" />
+      <PageHeader title="Record payment" backHref="/dashboard" />
       <div className={`${cardClass} p-5 sm:p-6`}>
         <PaymentForm
           customers={customers.map((c) => ({
@@ -21,7 +21,7 @@ export default async function NewPaymentPage() {
             outstanding: c.outstanding,
             overdue: c.overdue,
           }))}
-          cancelHref="/"
+          cancelHref="/dashboard"
         />
       </div>
     </div>

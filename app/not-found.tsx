@@ -8,7 +8,7 @@ export default function NotFound() {
       <LogoMark className="w-10 h-10" />
       <h1 className="mt-5 text-xl font-semibold text-zinc-900">Page not found</h1>
       <p className="mt-1 text-sm text-zinc-500">The customer or page you are looking for does not exist.</p>
-      <Link href="/" className={buttonClass('primary', 'mt-6')}>
+      <Link href="/dashboard" className={buttonClass('primary', 'mt-6')}>
         Back to dashboard
       </Link>
     </div>

@@ -22,7 +22,7 @@ export async function addSaleAction(formData: FormData) {
 
     const newSale = await createCreditSale(parsed.data);
 
-    revalidatePath('/');
+    revalidatePath('/dashboard');
     revalidatePath('/customers');
     revalidatePath(`/customers/${parsed.data.customer_id}`);
     revalidatePath('/overdue');

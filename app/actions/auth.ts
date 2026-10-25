@@ -7,7 +7,7 @@ export type SignInState = { error?: string; email?: string };
 
 export async function signInAction(_prev: SignInState, formData: FormData): Promise<SignInState> {
   const supabase = await createServerSupabaseClient();
-  if (!supabase) redirect('/'); // demo mode has no login
+  if (!supabase) redirect('/dashboard'); // demo mode has no login
 
   const email = String(formData.get('email') ?? '').trim();
   const password = String(formData.get('password') ?? '');
@@ -21,7 +21,7 @@ export async function signInAction(_prev: SignInState, formData: FormData): Prom
     return { error: error.message, email };
   }
 
-  redirect('/');
+  redirect('/dashboard');
 }
 
 export async function signOutAction() {

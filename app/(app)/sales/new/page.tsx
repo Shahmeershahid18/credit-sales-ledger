@@ -12,13 +12,13 @@ export default async function NewSalePage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <PageHeader title="New credit sale" backHref="/" />
+      <PageHeader title="New credit sale" backHref="/dashboard" />
       <div className={`${cardClass} p-5 sm:p-6`}>
         <SaleForm
-          customers={customers.map((c) => ({ id: c.id, name: c.name }))}
+          customers={customers.map((c) => ({ id: c.id, name: c.name, phone: c.phone }))}
           materials={materials}
           materialsAvailable={available}
-          cancelHref="/"
+          cancelHref="/dashboard"
         />
       </div>
     </div>

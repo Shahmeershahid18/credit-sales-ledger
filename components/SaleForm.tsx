@@ -9,6 +9,7 @@ import { Check, Loader2, UserPlus, Plus } from 'lucide-react';
 import { Material } from '@/lib/types';
 import { Field, FormError, Segmented, buttonClass, inputClass } from './ui';
 import { MaterialPills } from './MaterialPills';
+import { Select } from './Select';
 
 export type CustomerOption = { id: string; name: string; phone?: string | null };
 
@@ -113,16 +114,14 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {!preselectedCustomerId && (
           <Field label="Customer" htmlFor="customer" className="col-span-2 sm:col-span-3">
-            <select id="customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputClass} required>
-              <option value="" disabled>
-                Select customer…
-              </option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="customer"
+              value={customerId}
+              onChange={setCustomerId}
+              placeholder="Select customer…"
+              searchPlaceholder="Search customers…"
+              options={customers.map((c) => ({ value: c.id, label: c.name, description: c.phone ?? undefined }))}
+            />
           </Field>
         )}
         <Field
@@ -156,13 +155,7 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
           {isNewMaterial && <p className="text-xs text-zinc-500">New material. It will be saved as a pill for next time.</p>}
         </Field>
         <Field label="Unit" htmlFor="unit">
-          <select id="unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputClass}>
-            {units.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
+          <Select id="unit" value={unit} onChange={setUnit} options={units.map((u) => ({ value: u, label: u }))} searchable={false} />
         </Field>
 
         <Field label="Quantity" htmlFor="quantity">

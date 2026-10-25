@@ -4,11 +4,15 @@ import type { Database } from '@/types/database';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from '@/lib/config';
 
 const LOGIN_PATH = '/login';
+const HOME_PATH = '/dashboard';
+// Pages a signed-out visitor may open: the landing page and the login page
+const PUBLIC_PATHS = ['/', LOGIN_PATH];
 
 /**
  * Refreshes the Supabase session cookie on every request and redirects
- * signed-out visitors to /login (and signed-in visitors away from it).
- * Called from proxy.ts. In demo mode every request passes through.
+ * signed-out visitors to /login (and signed-in visitors from the public
+ * pages to the dashboard). Called from proxy.ts. In demo mode every request
+ * passes through.
  */
 export async function updateSession(request: NextRequest) {
   if (!isSupabaseConfigured()) {
@@ -34,14 +38,14 @@ export async function updateSession(request: NextRequest) {
   // Do not run code between createServerClient and getClaims(): it refreshes the session.
   const { data } = await supabase.auth.getClaims();
   const isSignedIn = Boolean(data?.claims);
-  const isLoginPage = request.nextUrl.pathname === LOGIN_PATH;
+  const isPublicPage = PUBLIC_PATHS.includes(request.nextUrl.pathname);
 
-  if (!isSignedIn && !isLoginPage) {
+  if (!isSignedIn && !isPublicPage) {
     return redirectKeepingCookies(request, response, LOGIN_PATH);
   }
 
-  if (isSignedIn && isLoginPage) {
-    return redirectKeepingCookies(request, response, '/');
+  if (isSignedIn && isPublicPage) {
+    return redirectKeepingCookies(request, response, HOME_PATH);
   }
 
   return response;

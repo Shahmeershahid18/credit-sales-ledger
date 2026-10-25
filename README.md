@@ -39,7 +39,8 @@ the same zone.
 
 ## Project layout
 
-- `app/(app)/` – pages: dashboard, customers, ledger, overdue, monthly report
+- `app/page.tsx` – public landing page at `/` (signed-in users are sent to `/dashboard`)
+- `app/(app)/` – signed-in pages: dashboard (`/dashboard`), customers, ledger, overdue, monthly report
 - `app/actions/` – Server Actions (customers, sales, payments, auth)
 - `lib/queries.ts` – all reads and writes (Supabase views + `monthly_report` RPC, or the demo store)
 - `lib/store.ts` – calculations shared by demo mode; they mirror the SQL views

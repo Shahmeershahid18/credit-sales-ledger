@@ -21,7 +21,7 @@ export async function addPaymentAction(formData: FormData) {
 
     const newPayment = await createPayment(parsed.data);
 
-    revalidatePath('/');
+    revalidatePath('/dashboard');
     revalidatePath('/customers');
     revalidatePath(`/customers/${parsed.data.customer_id}`);
     revalidatePath('/overdue');

@@ -30,7 +30,7 @@ export default function LoginPage() {
                 Supabase is not configured, so the app is running in demo mode with sample data. Add your
                 project URL and anon key to <code className="text-zinc-900">.env.local</code> to enable sign-in.
               </p>
-              <Link href="/" className={buttonClass('primary', 'w-full h-10')}>
+              <Link href="/dashboard" className={buttonClass('primary', 'w-full h-10')}>
                 Open demo
               </Link>
             </div>

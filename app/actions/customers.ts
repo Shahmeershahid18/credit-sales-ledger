@@ -21,7 +21,7 @@ export async function addCustomerAction(formData: FormData) {
 
     const newCustomer = await createCustomer(parsed.data);
 
-    revalidatePath('/');
+    revalidatePath('/dashboard');
     revalidatePath('/customers');
     return { success: true, customer: newCustomer };
   } catch (err: unknown) {
