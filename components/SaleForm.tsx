@@ -6,14 +6,16 @@ import { useRouter } from 'next/navigation';
 import { formatRs, getTodayDateStr, calculateDueDate, formatDate } from '@/lib/format';
 import { addSaleAction } from '@/app/actions/sales';
 import { Check, Loader2, UserPlus, Plus } from 'lucide-react';
+import { Material } from '@/lib/types';
 import { Field, FormError, Segmented, buttonClass, inputClass } from './ui';
+import { MaterialPills } from './MaterialPills';
 
 export type CustomerOption = { id: string; name: string; phone?: string | null };
-export type MaterialOption = { material: string; unit: string; rate: number };
 
 interface SaleFormProps {
   customers: CustomerOption[];
-  materials?: MaterialOption[];
+  materials: Material[];
+  materialsAvailable: boolean;
   preselectedCustomerId?: string;
   cancelHref: string;
 }
@@ -21,7 +23,7 @@ interface SaleFormProps {
 const BASE_UNITS = ['bag', 'ton', 'kg', 'truck', 'pcs', 'ft', 'sqft', 'litre', 'can'];
 type Term = 30 | 60 | 90 | 'custom';
 
-export function SaleForm({ customers, materials = [], preselectedCustomerId, cancelHref }: SaleFormProps) {
+export function SaleForm({ customers, materials, materialsAvailable, preselectedCustomerId, cancelHref }: SaleFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export function SaleForm({ customers, materials = [], preselectedCustomerId, can
   const [customDays, setCustomDays] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const [notes, setNotes] = useState('');
+  const [materialList, setMaterialList] = useState(materials);
 
   const parsedQty = Number(quantity) || 0;
   const parsedRate = Number(rate) || 0;
@@ -48,13 +51,24 @@ export function SaleForm({ customers, materials = [], preselectedCustomerId, can
     return <NoCustomersYet />;
   }
 
+  const isNewMaterial =
+    materialsAvailable &&
+    material.trim() !== '' &&
+    !materialList.some((m) => m.name.toLowerCase() === material.trim().toLowerCase());
+
+  const pickMaterial = (m: Material) => {
+    setMaterial(m.name);
+    setUnit(m.unit);
+    if (m.rate !== null) setRate(String(m.rate));
+  };
+
   const handleMaterialChange = (value: string) => {
     setMaterial(value);
-    // Picking a material used before fills in its last unit and rate
-    const match = materials.find((m) => m.material.toLowerCase() === value.trim().toLowerCase());
+    // Typing a saved material's full name fills its unit, and its rate if none is entered yet
+    const match = materialList.find((m) => m.name.toLowerCase() === value.trim().toLowerCase());
     if (match) {
       setUnit(match.unit);
-      if (!rate) setRate(String(match.rate));
+      if (!rate && match.rate !== null) setRate(String(match.rate));
     }
   };
 
@@ -96,9 +110,9 @@ export function SaleForm({ customers, materials = [], preselectedCustomerId, can
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
       <FormError message={errorMsg} />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {!preselectedCustomerId && (
-          <Field label="Customer" htmlFor="customer" className="col-span-2">
+          <Field label="Customer" htmlFor="customer" className="col-span-2 sm:col-span-3">
             <select id="customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputClass} required>
               <option value="" disabled>
                 Select customer…
@@ -114,28 +128,32 @@ export function SaleForm({ customers, materials = [], preselectedCustomerId, can
         <Field
           label="Sale date"
           htmlFor="sale_date"
-          className={preselectedCustomerId ? 'col-span-2 sm:col-span-3 sm:max-w-[13rem]' : 'col-span-2 sm:col-span-1'}
+          className={preselectedCustomerId ? 'col-span-2 sm:col-span-4 sm:max-w-[13rem]' : 'col-span-2 sm:col-span-1'}
         >
           <input id="sale_date" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} className={inputClass} required />
         </Field>
 
-        <Field label="Material" htmlFor="material" className="col-span-2">
+        <Field label="Material" htmlFor="material" className="col-span-2 sm:col-span-4">
+          <MaterialPills
+            materials={materialList}
+            onMaterialsChange={setMaterialList}
+            available={materialsAvailable}
+            units={BASE_UNITS}
+            selectedName={material}
+            filterText={material}
+            onPick={pickMaterial}
+          />
           <input
             id="material"
             type="text"
-            list="material-options"
             autoComplete="off"
-            placeholder="e.g. Cement, Steel 60-grade"
+            placeholder="Pick above or type a material"
             value={material}
             onChange={(e) => handleMaterialChange(e.target.value)}
             className={inputClass}
             required
           />
-          <datalist id="material-options">
-            {materials.map((m) => (
-              <option key={m.material} value={m.material} />
-            ))}
-          </datalist>
+          {isNewMaterial && <p className="text-xs text-zinc-500">New material. It will be saved as a pill for next time.</p>}
         </Field>
         <Field label="Unit" htmlFor="unit">
           <select id="unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={inputClass}>

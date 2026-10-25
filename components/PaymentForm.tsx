@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { formatRs, getTodayDateStr } from '@/lib/format';
-import { addPaymentAction } from '@/app/actions/payments';
-import { PaymentMethod } from '@/lib/types';
+import { formatDate, formatRs, getTodayDateStr } from '@/lib/format';
+import { addPaymentAction, getCustomerSalesAction } from '@/app/actions/payments';
+import { PaymentMethod, SaleOption } from '@/lib/types';
 import { Field, FormError, Segmented, inputClass } from './ui';
 import { FormFooter, NoCustomersYet } from './SaleForm';
 
@@ -13,10 +13,16 @@ export type PaymentCustomerOption = { id: string; name: string; outstanding: num
 interface PaymentFormProps {
   customers: PaymentCustomerOption[];
   preselectedCustomerId?: string;
+  initialSales?: SaleOption[]; // sales of the preselected customer
   cancelHref: string;
 }
 
-export function PaymentForm({ customers, preselectedCustomerId, cancelHref }: PaymentFormProps) {
+function saleLabel(s: SaleOption) {
+  const due = s.outstanding > 0 ? `${formatRs(s.outstanding)} due` : 'paid';
+  return `${formatDate(s.sale_date)} · ${s.material} · ${formatRs(s.amount)} (${due})`;
+}
+
+export function PaymentForm({ customers, preselectedCustomerId, initialSales, cancelHref }: PaymentFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -26,9 +32,40 @@ export function PaymentForm({ customers, preselectedCustomerId, cancelHref }: Pa
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [notes, setNotes] = useState('');
+  const [saleId, setSaleId] = useState('');
+  const [salesByCustomer, setSalesByCustomer] = useState<Record<string, SaleOption[]>>(
+    preselectedCustomerId && initialSales ? { [preselectedCustomerId]: initialSales } : {}
+  );
+  const [loadingSales, setLoadingSales] = useState(false);
+  const latestRequest = useRef('');
 
   const parsedAmount = Number(amount) || 0;
   const selected = customers.find((c) => c.id === customerId);
+  const customerSales = customerId ? salesByCustomer[customerId] : undefined;
+  const selectedSale = customerSales?.find((s) => s.id === saleId);
+
+  const handleCustomerChange = async (id: string) => {
+    setCustomerId(id);
+    setSaleId('');
+    if (!id || salesByCustomer[id]) return;
+
+    latestRequest.current = id;
+    setLoadingSales(true);
+    const result = await getCustomerSalesAction(id);
+    if (latestRequest.current !== id) return; // a different customer was picked meanwhile
+    setLoadingSales(false);
+    if (result.success) {
+      setSalesByCustomer((prev) => ({ ...prev, [id]: result.sales }));
+    } else {
+      setErrorMsg(result.error);
+    }
+  };
+
+  const handleSaleChange = (id: string) => {
+    setSaleId(id);
+    const sale = customerSales?.find((s) => s.id === id);
+    if (sale && sale.outstanding > 0) setAmount(String(sale.outstanding));
+  };
 
   if (customers.length === 0) {
     return <NoCustomersYet />;
@@ -47,6 +84,7 @@ export function PaymentForm({ customers, preselectedCustomerId, cancelHref }: Pa
     formData.append('payment_date', paymentDate);
     formData.append('amount', String(parsedAmount));
     formData.append('method', method);
+    if (saleId) formData.append('sale_id', saleId);
     if (notes.trim()) formData.append('notes', notes);
 
     const result = await addPaymentAction(formData);
@@ -67,7 +105,7 @@ export function PaymentForm({ customers, preselectedCustomerId, cancelHref }: Pa
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {!preselectedCustomerId && (
           <Field label="Customer" htmlFor="customer" className="sm:col-span-2">
-            <select id="customer" value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputClass} required>
+            <select id="customer" value={customerId} onChange={(e) => handleCustomerChange(e.target.value)} className={inputClass} required>
               <option value="" disabled>
                 Select customer…
               </option>
@@ -104,13 +142,40 @@ export function PaymentForm({ customers, preselectedCustomerId, cancelHref }: Pa
           {selected.outstanding > 0 && (
             <button
               type="button"
-              onClick={() => setAmount(String(selected.outstanding))}
+              onClick={() => {
+                setSaleId('');
+                setAmount(String(selected.outstanding));
+              }}
               className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
             >
               Pay full balance
             </button>
           )}
         </div>
+      )}
+
+      {customerId && (
+        <Field
+          label="For sale"
+          htmlFor="sale"
+          optional
+          hint={loadingSales ? 'Loading sales…' : customerSales?.length === 0 ? 'No credit sales yet' : undefined}
+        >
+          <select
+            id="sale"
+            value={saleId}
+            onChange={(e) => handleSaleChange(e.target.value)}
+            disabled={loadingSales || !customerSales?.length}
+            className={inputClass}
+          >
+            <option value="">Not linked to a sale</option>
+            {customerSales?.map((s) => (
+              <option key={s.id} value={s.id} disabled={s.outstanding <= 0}>
+                {saleLabel(s)}
+              </option>
+            ))}
+          </select>
+        </Field>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -156,7 +221,11 @@ export function PaymentForm({ customers, preselectedCustomerId, cancelHref }: Pa
         />
       </Field>
 
-      <p className="text-xs text-zinc-500">Payments are applied to the oldest unpaid sales first.</p>
+      <p className="text-xs text-zinc-500">
+        {selectedSale
+          ? `Applied to the ${selectedSale.material} sale of ${formatDate(selectedSale.sale_date)} first; any extra goes to the oldest unpaid sales.`
+          : 'Applied to the oldest unpaid sales first.'}
+      </p>
 
       <FormFooter
         cancelHref={cancelHref}

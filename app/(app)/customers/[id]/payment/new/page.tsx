@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { getCustomerById, getLedger } from '@/lib/queries';
+import { getCustomerById, getCustomerSaleOptions, getLedger } from '@/lib/queries';
 import { PaymentForm } from '@/components/PaymentForm';
 import { PageHeader, cardClass } from '@/components/ui';
 
@@ -20,7 +20,7 @@ export default async function CustomerPaymentPage({ params }: CustomerPaymentPag
     notFound();
   }
 
-  const ledger = await getLedger(id);
+  const [ledger, sales] = await Promise.all([getLedger(id), getCustomerSaleOptions(id)]);
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -29,6 +29,7 @@ export default async function CustomerPaymentPage({ params }: CustomerPaymentPag
         <PaymentForm
           customers={[{ id: customer.id, name: customer.name, outstanding: ledger.outstanding, overdue: ledger.overdue }]}
           preselectedCustomerId={id}
+          initialSales={sales}
           cancelHref={`/customers/${id}`}
         />
       </div>

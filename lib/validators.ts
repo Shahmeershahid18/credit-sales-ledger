@@ -31,7 +31,17 @@ export const PaymentSchema = z.object({
   payment_date: dateField,
   amount: z.coerce.number().positive('Payment amount must be greater than 0'),
   method: z.enum(['cash', 'bank', 'cheque']).default('cash'),
+  sale_id: optionalText,
   notes: optionalText,
+});
+
+export const MaterialSchema = z.object({
+  name: z.string().trim().min(1, 'Material name is required').max(80, 'Material name is too long'),
+  unit: z.string().trim().min(1, 'Unit is required').max(20),
+  rate: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? null : v),
+    z.coerce.number().min(0, 'Rate cannot be negative').nullable()
+  ),
 });
 
 /**
@@ -44,3 +54,4 @@ export function firstIssue(error: z.ZodError): string {
 export type CustomerFormData = z.infer<typeof CustomerSchema>;
 export type CreditSaleFormData = z.infer<typeof CreditSaleSchema>;
 export type PaymentFormData = z.infer<typeof PaymentSchema>;
+export type MaterialFormData = z.infer<typeof MaterialSchema>;

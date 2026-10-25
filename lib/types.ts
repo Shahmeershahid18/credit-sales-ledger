@@ -29,8 +29,33 @@ export type Payment = {
   payment_date: string; // YYYY-MM-DD
   amount: number;
   method: PaymentMethod;
+  sale_id?: string | null; // optional: the sale this payment was made against
   notes?: string | null;
   created_at: string;
+};
+
+/**
+ * A saved material shown as a quick-pick pill on the sale form
+ */
+export type Material = {
+  id: string;
+  name: string;
+  unit: string;
+  rate: number | null;
+  created_at: string;
+};
+
+/**
+ * A customer's sale as offered in the "For sale" picker on the payment form
+ */
+export type SaleOption = {
+  id: string;
+  sale_date: string;
+  material: string;
+  quantity: number;
+  unit: string;
+  amount: number;
+  outstanding: number;
 };
 
 export type SaleBalance = CreditSale & {
@@ -70,6 +95,7 @@ export type LedgerRow = {
   due_date?: string;
   status?: 'Paid' | 'Pending' | 'Overdue' | '—';
   method?: string;
+  against?: string; // payments: "Material · date" of the linked sale
   notes?: string | null;
 };
 

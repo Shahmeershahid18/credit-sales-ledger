@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { getCustomerById, getMaterialSuggestions } from '@/lib/queries';
+import { getCustomerById, getMaterials } from '@/lib/queries';
 import { SaleForm } from '@/components/SaleForm';
 import { PageHeader, cardClass } from '@/components/ui';
 
@@ -14,7 +14,7 @@ interface CustomerSalePageProps {
 
 export default async function CustomerSalePage({ params }: CustomerSalePageProps) {
   const { id } = await params;
-  const [customer, materials] = await Promise.all([getCustomerById(id), getMaterialSuggestions()]);
+  const [customer, { materials, available }] = await Promise.all([getCustomerById(id), getMaterials()]);
 
   if (!customer) {
     notFound();
@@ -27,6 +27,7 @@ export default async function CustomerSalePage({ params }: CustomerSalePageProps
         <SaleForm
           customers={[{ id: customer.id, name: customer.name }]}
           materials={materials}
+          materialsAvailable={available}
           preselectedCustomerId={id}
           cancelHref={`/customers/${id}`}
         />

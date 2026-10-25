@@ -1,11 +1,16 @@
-import { Customer, CreditSale, Payment } from './types';
+import { Customer, CreditSale, Material, Payment } from './types';
 import { addDays, calculateDueDate, getTodayDateStr } from './format';
 
 /**
  * Demo records with dates relative to today so overdue calculations always look realistic.
  * Mirrors supabase/seed.sql.
  */
-export function createSampleData(): { customers: Customer[]; sales: CreditSale[]; payments: Payment[] } {
+export function createSampleData(): {
+  customers: Customer[];
+  sales: CreditSale[];
+  payments: Payment[];
+  materials: Material[];
+} {
   const today = getTodayDateStr();
   const daysAgo = (days: number) => addDays(today, -days);
   const createdAt = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
@@ -75,5 +80,14 @@ export function createSampleData(): { customers: Customer[]; sales: CreditSale[]
     payment('pmt-4', 'cust-4', 15, 180000, 'bank', 'Online transfer'),
   ];
 
-  return { customers, sales, payments };
+  // One pill per material used in the sample sales, like the migration backfill
+  const materials: Material[] = sales.map((s, i) => ({
+    id: `mat-${i + 1}`,
+    name: s.material,
+    unit: s.unit,
+    rate: s.rate,
+    created_at: s.created_at,
+  }));
+
+  return { customers, sales, payments, materials };
 }

@@ -22,7 +22,9 @@ import {
   CustomerStatus,
   CustomerSummary,
   DashboardStats,
+  Material,
   MonthTotals,
+  SaleOption,
   MonthlyReport,
   OverdueAgingBucket,
   Payment,
@@ -108,6 +110,7 @@ function toPayment(r: PaymentRow): Payment {
     payment_date: r.payment_date,
     amount: num(r.amount),
     method: toPaymentMethod(r.method),
+    sale_id: r.sale_id ?? null,
     notes: r.notes,
     created_at: r.created_at,
   };
@@ -316,41 +319,163 @@ export async function getMonthlyReportData(month: string): Promise<MonthlyReport
   );
 }
 
-export type MaterialSuggestion = { material: string; unit: string; rate: number };
-
 /**
- * Materials sold before, most recent first, with the unit and rate last used.
- * Powers autocomplete on the sale form.
+ * A customer's sales, newest first, with what is still unpaid on each.
+ * Powers the "For sale" picker on the payment form.
  */
-export async function getMaterialSuggestions(limit = 30): Promise<MaterialSuggestion[]> {
+export async function getCustomerSaleOptions(customerId: string): Promise<SaleOption[]> {
   const db = await getDb();
 
-  let recent: { material: string; unit: string | null; rate: number }[];
+  let balances: { id: string; sale_date: string; material: string; quantity: number; unit: string; amount: number; outstanding: number }[];
   if (!db) {
-    recent = [...getDemoData().sales].sort(
-      (a, b) => b.sale_date.localeCompare(a.sale_date) || b.created_at.localeCompare(a.created_at)
+    const { sales, payments } = getDemoData();
+    balances = calculateSaleBalances(
+      sales.filter((s) => s.customer_id === customerId),
+      payments.filter((p) => p.customer_id === customerId)
     );
   } else {
-    const { data, error } = await db
-      .from('credit_sales')
-      .select('material, unit, rate')
-      .order('sale_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(500);
-    if (error) throw new Error(error.message);
-    recent = data ?? [];
+    if (!UUID_RE.test(customerId)) return [];
+    const rows = await fetchAll((from, to) =>
+      db.from('sale_balances').select('*').eq('customer_id', customerId).order('sale_date').order('id').range(from, to)
+    );
+    balances = rows.map((r) => ({
+      id: r.id ?? '',
+      sale_date: r.sale_date ?? '',
+      material: r.material ?? '',
+      quantity: num(r.quantity),
+      unit: r.unit ?? '',
+      amount: num(r.amount),
+      outstanding: num(r.outstanding),
+    }));
   }
 
-  const seen = new Set<string>();
-  const suggestions: MaterialSuggestion[] = [];
-  for (const s of recent) {
-    const key = s.material.trim().toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    suggestions.push({ material: s.material.trim(), unit: s.unit || 'bag', rate: num(s.rate) });
-    if (suggestions.length >= limit) break;
+  return balances
+    .map((b) => ({
+      id: b.id,
+      sale_date: b.sale_date,
+      material: b.material,
+      quantity: b.quantity,
+      unit: b.unit,
+      amount: b.amount,
+      outstanding: b.outstanding,
+    }))
+    .sort((a, b) => b.sale_date.localeCompare(a.sale_date));
+}
+
+// ---------------------------------------------------------------------------
+// Materials (quick-pick pills on the sale form)
+// ---------------------------------------------------------------------------
+
+type MaterialRow = Database['public']['Tables']['materials']['Row'];
+type MaterialInput = { name: string; unit: string; rate: number | null };
+
+const MATERIALS_MIGRATION = 'supabase/migrations/20261026020000_materials_and_payment_sale.sql';
+
+/**
+ * True when a PostgREST error means a table or column from a newer migration is missing
+ */
+function isMissingSchema(error: { code?: string; message: string }) {
+  return ['PGRST205', 'PGRST204', '42P01', '42703'].includes(error.code ?? '') || /schema cache|does not exist/i.test(error.message);
+}
+
+function materialError(error: { code?: string; message: string }): Error {
+  if (isMissingSchema(error)) {
+    return new Error(`Saved materials need a database update. Run ${MATERIALS_MIGRATION} in the Supabase SQL Editor.`);
   }
-  return suggestions;
+  if (error.code === '23505') {
+    return new Error('A material with this name already exists.');
+  }
+  return new Error(error.message);
+}
+
+function toMaterial(r: MaterialRow): Material {
+  return { id: r.id, name: r.name, unit: r.unit, rate: r.rate === null ? null : num(r.rate), created_at: r.created_at };
+}
+
+const byName = (a: Material, b: Material) => a.name.localeCompare(b.name);
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Saved materials, A–Z. Returns `available: false` when the materials table
+ * has not been created yet, so the sale form still works.
+ */
+export async function getMaterials(): Promise<{ materials: Material[]; available: boolean }> {
+  const db = await getDb();
+  if (!db) {
+    return { materials: [...getDemoData().materials].sort(byName), available: true };
+  }
+
+  const { data, error } = await db.from('materials').select('*').order('name').limit(1000);
+  if (error) {
+    if (isMissingSchema(error)) return { materials: [], available: false };
+    throw new Error(error.message);
+  }
+  return { materials: (data ?? []).map(toMaterial), available: true };
+}
+
+export async function createMaterial(input: MaterialInput): Promise<Material> {
+  const db = await getDb();
+
+  if (!db) {
+    const list = getDemoData().materials;
+    if (list.some((m) => sameName(m.name, input.name))) throw new Error('A material with this name already exists.');
+    const material: Material = { id: newDemoId('mat'), ...input, created_at: new Date().toISOString() };
+    list.push(material);
+    return material;
+  }
+
+  const { data, error } = await db.from('materials').insert(input).select().single();
+  if (error) throw materialError(error);
+  return toMaterial(data);
+}
+
+export async function updateMaterial(id: string, input: MaterialInput): Promise<Material> {
+  const db = await getDb();
+
+  if (!db) {
+    const list = getDemoData().materials;
+    const material = list.find((m) => m.id === id);
+    if (!material) throw new Error('Material not found');
+    if (list.some((m) => m.id !== id && sameName(m.name, input.name))) {
+      throw new Error('A material with this name already exists.');
+    }
+    Object.assign(material, input);
+    return material;
+  }
+
+  if (!UUID_RE.test(id)) throw new Error('Material not found');
+  const { data, error } = await db.from('materials').update(input).eq('id', id).select().single();
+  if (error) throw materialError(error);
+  return toMaterial(data);
+}
+
+export async function deleteMaterial(id: string): Promise<void> {
+  const db = await getDb();
+
+  if (!db) {
+    const list = getDemoData().materials;
+    const index = list.findIndex((m) => m.id === id);
+    if (index >= 0) list.splice(index, 1);
+    return;
+  }
+
+  if (!UUID_RE.test(id)) return;
+  const { error } = await db.from('materials').delete().eq('id', id);
+  if (error) throw materialError(error);
+}
+
+/**
+ * Saves a material used in a sale as a new pill if it is not saved yet.
+ * Existing pills are left as they are. Never fails the sale.
+ */
+async function rememberMaterial(input: MaterialInput): Promise<void> {
+  try {
+    const { materials, available } = await getMaterials();
+    if (!available || materials.some((m) => sameName(m.name, input.name))) return;
+    await createMaterial(input);
+  } catch {
+    // Duplicate created at the same moment, or no materials table yet: the sale is already saved
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -412,11 +537,12 @@ export async function createCreditSale(data: {
     notes: data.notes || null,
   };
   const db = await getDb();
+  let sale: CreditSale;
 
   if (!db) {
     const store = getDemoData();
     if (!store.customers.some((c) => c.id === data.customer_id)) throw new Error('Customer not found');
-    const sale: CreditSale = {
+    sale = {
       id: newDemoId('sale'),
       ...values,
       amount: data.quantity * data.rate,
@@ -424,11 +550,14 @@ export async function createCreditSale(data: {
       created_at: new Date().toISOString(),
     };
     store.sales.push(sale);
-    return sale;
+  } else {
+    // amount and due_date are generated columns in the database
+    sale = toSale(check(await db.from('credit_sales').insert(values).select().single()));
   }
 
-  // amount and due_date are generated columns in the database
-  return toSale(check(await db.from('credit_sales').insert(values).select().single()));
+  // New materials become pills so they don't have to be typed again
+  await rememberMaterial({ name: data.material, unit: data.unit, rate: data.rate });
+  return sale;
 }
 
 export async function createPayment(data: {
@@ -436,6 +565,7 @@ export async function createPayment(data: {
   payment_date: string;
   amount: number;
   method: PaymentMethod;
+  sale_id?: string | null;
   notes?: string | null;
 }): Promise<Payment> {
   const values = {
@@ -444,16 +574,29 @@ export async function createPayment(data: {
     amount: data.amount,
     method: data.method,
     notes: data.notes || null,
+    // Only sent when set, so payments still save before the sale_id migration is run
+    ...(data.sale_id ? { sale_id: data.sale_id } : {}),
   };
   const db = await getDb();
 
   if (!db) {
     const store = getDemoData();
     if (!store.customers.some((c) => c.id === data.customer_id)) throw new Error('Customer not found');
+    if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id)) {
+      throw new Error('The selected sale does not belong to this customer.');
+    }
     const payment: Payment = { id: newDemoId('pmt'), ...values, created_at: new Date().toISOString() };
     store.payments.push(payment);
     return payment;
   }
 
-  return toPayment(check(await db.from('payments').insert(values).select().single()));
+  const { data: row, error } = await db.from('payments').insert(values).select().single();
+  if (error) {
+    if (data.sale_id && isMissingSchema(error)) {
+      throw new Error(`Linking a payment to a sale needs a database update. Run ${MATERIALS_MIGRATION} in the Supabase SQL Editor.`);
+    }
+    if (error.code === '23503') throw new Error('The selected sale does not belong to this customer.');
+    throw new Error(error.message);
+  }
+  return toPayment(row);
 }

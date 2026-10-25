@@ -2,6 +2,7 @@ import {
   Customer,
   CreditSale,
   Payment,
+  Material,
   SaleBalance,
   CustomerSummary,
   CustomerStatus,
@@ -16,7 +17,7 @@ import {
   MonthlyReport,
 } from './types';
 import { createSampleData } from './sample-data';
-import { daysBetween, formatMonth, getTodayDateStr } from './format';
+import { daysBetween, formatDate, formatMonth, getTodayDateStr } from './format';
 
 // ---------------------------------------------------------------------------
 // Demo store (used only when Supabase is not configured).
@@ -24,7 +25,7 @@ import { daysBetween, formatMonth, getTodayDateStr } from './format';
 // server restarts.
 // ---------------------------------------------------------------------------
 
-type DemoData = { customers: Customer[]; sales: CreditSale[]; payments: Payment[] };
+type DemoData = { customers: Customer[]; sales: CreditSale[]; payments: Payment[]; materials: Material[] };
 
 const globalStore = globalThis as typeof globalThis & { __ledgerDemoData?: DemoData };
 
@@ -50,16 +51,26 @@ function statusFor(outstanding: number, overdue: number): CustomerStatus {
 }
 
 /**
- * FIFO balance for each sale. Matches the `sale_balances` view.
+ * Paid and outstanding amount of each sale. Matches the `sale_balances` view:
+ * a payment linked to a sale settles that sale first; unlinked payments and any
+ * overpayment on a linked sale go to the customer's oldest unpaid sales (FIFO).
  */
 export function calculateSaleBalances(
   sales: CreditSale[],
   payments: Payment[],
   today: string = getTodayDateStr()
 ): SaleBalance[] {
-  const paidByCustomer = new Map<string, number>();
+  const saleById = new Map(sales.map((s) => [s.id, s]));
+  const linkedBySale = new Map<string, number>();
+  const poolByCustomer = new Map<string, number>();
+
   for (const p of payments) {
-    paidByCustomer.set(p.customer_id, (paidByCustomer.get(p.customer_id) || 0) + Number(p.amount));
+    const linkedSale = p.sale_id ? saleById.get(p.sale_id) : undefined;
+    if (linkedSale && linkedSale.customer_id === p.customer_id) {
+      linkedBySale.set(linkedSale.id, (linkedBySale.get(linkedSale.id) || 0) + Number(p.amount));
+    } else {
+      poolByCustomer.set(p.customer_id, (poolByCustomer.get(p.customer_id) || 0) + Number(p.amount));
+    }
   }
 
   const salesByCustomer = new Map<string, CreditSale[]>();
@@ -80,22 +91,32 @@ export function calculateSaleBalances(
         a.id.localeCompare(b.id)
     );
 
-    const totalPaid = paidByCustomer.get(customerId) || 0;
-    let priorTotal = 0;
+    // Pass 1: linked payments; overpayment on a sale joins the FIFO pool
+    let pool = poolByCustomer.get(customerId) || 0;
+    const linkedPaid = ordered.map((s) => {
+      const linked = linkedBySale.get(s.id) || 0;
+      const applied = Math.min(Number(s.amount), linked);
+      pool += linked - applied;
+      return applied;
+    });
 
-    for (const s of ordered) {
+    // Pass 2: FIFO over what is still unpaid
+    let priorRemaining = 0;
+    ordered.forEach((s, i) => {
       const amount = Number(s.amount);
-      const paidAgainstThis = Math.min(amount, Math.max(0, totalPaid - priorTotal));
+      const remaining = amount - linkedPaid[i];
+      const fifoPaid = Math.min(remaining, Math.max(0, pool - priorRemaining));
+      const paid = linkedPaid[i] + fifoPaid;
 
       result.push({
         ...s,
-        paid_amount: paidAgainstThis,
-        outstanding: amount - paidAgainstThis,
+        paid_amount: paid,
+        outstanding: amount - paid,
         days_overdue: Math.max(0, daysBetween(s.due_date, today)),
       });
 
-      priorTotal += amount;
-    }
+      priorRemaining += remaining;
+    });
   }
 
   return result;
@@ -211,6 +232,7 @@ export function calculateCustomerLedger(
       const p = tx.data;
       const amount = Number(p.amount);
       runningBalance -= amount;
+      const linkedSale = p.sale_id ? balanceMap.get(p.sale_id) : undefined;
 
       rows.push({
         id: p.id,
@@ -221,6 +243,7 @@ export function calculateCustomerLedger(
         credit: amount,
         balance: runningBalance,
         method: p.method,
+        against: linkedSale ? `${linkedSale.material} · ${formatDate(linkedSale.sale_date)}` : undefined,
         status: '—',
         notes: p.notes,
       });

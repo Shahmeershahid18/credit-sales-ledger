@@ -89,6 +89,7 @@ export type Database = {
           payment_date: string;
           amount: number;
           method: string;
+          sale_id: string | null;
           notes: string | null;
           created_at: string;
         };
@@ -98,6 +99,7 @@ export type Database = {
           payment_date?: string;
           amount: number;
           method?: string;
+          sale_id?: string | null;
           notes?: string | null;
           created_at?: string;
         };
@@ -107,6 +109,7 @@ export type Database = {
           payment_date?: string;
           amount?: number;
           method?: string;
+          sale_id?: string | null;
           notes?: string | null;
           created_at?: string;
         };
@@ -119,6 +122,30 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      materials: {
+        Row: {
+          id: string;
+          name: string;
+          unit: string;
+          rate: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          unit?: string;
+          rate?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          unit?: string;
+          rate?: number | null;
+          created_at?: string;
+        };
+        Relationships: [];
       };
     };
     Views: {

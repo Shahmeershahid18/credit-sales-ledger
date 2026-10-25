@@ -22,7 +22,9 @@ login, and anything you add is lost when the server restarts. A banner in the ap
 2. In the SQL Editor, run these files in order:
    1. `supabase/migrations/20261026000000_credit_sale_schema.sql`
    2. `supabase/migrations/20261026010000_views_security_timezone_advance.sql`
-   3. Optional sample data: `supabase/seed.sql` (safe to run more than once)
+   3. `supabase/migrations/20261026020000_materials_and_payment_sale.sql` (saved material pills,
+      payments linked to a sale; safe to run more than once)
+   4. Optional sample data: `supabase/seed.sql` (safe to run more than once)
 3. Authentication → Providers → Email: keep email sign-in on and turn **off** "Allow new users to sign up".
 4. Authentication → Users → **Add user**: create your owner email and password.
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL` and

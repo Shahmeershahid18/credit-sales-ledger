@@ -123,6 +123,7 @@ export function LedgerTable({ rows, customerId }: LedgerTableProps) {
                       Balance <span className="font-medium text-zinc-900">{formatRs(row.balance)}</span>
                     </span>
                   </div>
+                  {row.against && <p className="mt-1.5 text-xs text-zinc-500">For {row.against}</p>}
                   {row.notes && <p className="mt-1.5 text-xs text-zinc-500">{row.notes}</p>}
                 </li>
               );
@@ -154,6 +155,7 @@ export function LedgerTable({ rows, customerId }: LedgerTableProps) {
                       <td className="py-3 px-4 whitespace-nowrap text-zinc-700">{formatDate(row.date)}</td>
                       <td className="py-3 px-4 max-w-[240px]">
                         <p className={`font-medium truncate ${isSale ? 'text-zinc-900' : 'text-emerald-700'}`}>{describe(row)}</p>
+                        {row.against && <p className="text-xs text-zinc-500 truncate">For {row.against}</p>}
                         {row.notes && (
                           <p className="text-xs text-zinc-500 truncate" title={row.notes}>
                             {row.notes}
