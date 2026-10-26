@@ -3,13 +3,13 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, AlertCircle, FileBarChart, Plus, ArrowDownLeft, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, AlertCircle, FileBarChart, Plus, ArrowDownLeft, LogOut, UserCog } from 'lucide-react';
 import { signOutAction } from '@/app/actions/auth';
 import { Logo } from './Logo';
 
 interface NavigationProps {
   isDemo: boolean;
-  email: string | null;
+  account: { name: string; email: string; isAdmin: boolean } | null;
 }
 
 const navItems = [
@@ -29,10 +29,11 @@ function SignOutButton({ className }: { className: string }) {
   );
 }
 
-export function Navigation({ isDemo, email }: NavigationProps) {
+export function Navigation({ isDemo, account }: NavigationProps) {
   const pathname = usePathname();
-  const accountLabel = isDemo ? 'Demo mode' : email ?? 'Signed in';
-  const initial = (email?.[0] ?? 'D').toUpperCase();
+  const initial = (account?.name[0] ?? 'D').toUpperCase();
+  const usersActive = pathname.startsWith('/users');
+  const accountActive = pathname.startsWith('/account');
 
   return (
     <>
@@ -79,17 +80,51 @@ export function Navigation({ isDemo, email }: NavigationProps) {
               </Link>
             );
           })}
+
+          {account?.isAdmin && (
+            <>
+              <p className="px-3 pt-5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Admin</p>
+              <Link
+                href="/users"
+                aria-current={usersActive ? 'page' : undefined}
+                className={`flex items-center gap-3 h-9 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  usersActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                }`}
+              >
+                <UserCog className={`w-4 h-4 ${usersActive ? 'text-emerald-400' : ''}`} />
+                Users
+              </Link>
+            </>
+          )}
         </nav>
 
-        <div className="p-3 border-t border-zinc-800 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-zinc-700 text-white text-sm font-medium flex items-center justify-center shrink-0">
-            {initial}
-          </div>
-          <p className="flex-1 min-w-0 text-sm text-zinc-300 truncate" title={accountLabel}>
-            {accountLabel}
-          </p>
+        <div className="p-3 border-t border-zinc-800 flex items-center gap-1">
+          {account ? (
+            <Link
+              href="/account"
+              title="Account and password"
+              className={`flex-1 min-w-0 flex items-center gap-3 p-1.5 -m-0.5 rounded-lg transition-colors ${
+                accountActive ? 'bg-zinc-800' : 'hover:bg-zinc-800/60'
+              }`}
+            >
+              <span className="w-8 h-8 rounded-full bg-zinc-700 text-white text-sm font-medium flex items-center justify-center shrink-0">
+                {initial}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm text-zinc-200 truncate">{account.name}</span>
+                <span className="block text-xs text-zinc-500 truncate">{account.isAdmin ? 'Admin' : account.email}</span>
+              </span>
+            </Link>
+          ) : (
+            <div className="flex-1 min-w-0 flex items-center gap-3 p-1.5">
+              <span className="w-8 h-8 rounded-full bg-zinc-700 text-white text-sm font-medium flex items-center justify-center shrink-0">
+                {initial}
+              </span>
+              <span className="text-sm text-zinc-300">{isDemo ? 'Demo mode' : 'Signed in'}</span>
+            </div>
+          )}
           {!isDemo && (
-            <SignOutButton className="w-8 h-8 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 flex items-center justify-center" />
+            <SignOutButton className="w-8 h-8 shrink-0 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 flex items-center justify-center" />
           )}
         </div>
       </aside>
@@ -114,8 +149,16 @@ export function Navigation({ isDemo, email }: NavigationProps) {
             <ArrowDownLeft className="w-3.5 h-3.5" />
             Payment
           </Link>
-          {!isDemo && (
-            <SignOutButton className="w-8 h-8 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 flex items-center justify-center" />
+          {account && (
+            <Link
+              href="/account"
+              aria-label="Account"
+              className={`ml-0.5 w-8 h-8 rounded-full text-sm font-medium flex items-center justify-center ${
+                accountActive || usersActive ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300'
+              }`}
+            >
+              {initial}
+            </Link>
           )}
         </div>
       </header>

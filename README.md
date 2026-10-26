@@ -1,6 +1,7 @@
 # Credit Sale Ledger
 
-Single-user app to track material given on credit, payments received and overdue amounts customer-wise.
+App to track material given on credit, payments received and overdue amounts customer-wise.
+Each user has their own private ledger; admins manage users and can open any ledger.
 Built with Next.js (App Router), Supabase (Postgres + Auth) and Tailwind CSS. See
 `credit-sale-monitoring-plan.md` for the full plan.
 
@@ -19,17 +20,29 @@ login, and anything you add is lost when the server restarts. A banner in the ap
 ## Connect Supabase (saves data, enables login)
 
 1. Create a project at https://supabase.com.
-2. In the SQL Editor, run these files in order:
+2. Authentication → Providers → Email: keep email sign-in on and turn **off** "Allow new users to sign up".
+3. Authentication → Users → **Add user**: create your own email and password. This first user is the admin.
+4. In the SQL Editor, run these files in order (each is safe to run more than once):
    1. `supabase/migrations/20261026000000_credit_sale_schema.sql`
    2. `supabase/migrations/20261026010000_views_security_timezone_advance.sql`
    3. `supabase/migrations/20261026020000_materials_and_payment_sale.sql` (saved material pills,
-      payments linked to a sale; safe to run more than once)
-   4. Optional sample data: `supabase/seed.sql` (safe to run more than once)
-3. Authentication → Providers → Email: keep email sign-in on and turn **off** "Allow new users to sign up".
-4. Authentication → Users → **Add user**: create your owner email and password.
-5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL` and
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Project Settings → API).
+      payments linked to a sale)
+   4. `supabase/migrations/20261026030000_users_and_separate_ledgers.sql` (user roles and a separate
+      ledger per user)
+   5. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
+   The service role key is a secret used only on the server; never commit it.
 6. Restart `npm run dev` and sign in at `/login`.
+
+## Users and roles
+
+- **Users** see and change only their own ledger. They change their password on the **Account** page.
+- **Admins** have their own ledger too, and on the **Users** page they can add users, set their
+  role, reset passwords, disable or delete accounts (deleting also deletes that user's ledger), and
+  open any user's ledger to view or edit it. A banner shows whose ledger is open.
+- Users who existed before the users migration became admins; new users start as users.
+- Separation is enforced by Row Level Security in the database, not only by the app.
 
 ## Timezone
 
@@ -40,8 +53,11 @@ the same zone.
 ## Project layout
 
 - `app/page.tsx` – public landing page at `/` (signed-in users are sent to `/dashboard`)
-- `app/(app)/` – signed-in pages: dashboard (`/dashboard`), customers, ledger, overdue, monthly report
-- `app/actions/` – Server Actions (customers, sales, payments, auth)
+- `app/(app)/` – signed-in pages: dashboard (`/dashboard`), customers, ledger, overdue, monthly report,
+  account (`/account`) and users (`/users`, admins only)
+- `app/actions/` – Server Actions (customers, sales, payments, materials, auth, account, users)
+- `lib/auth.ts` – signed-in user, role and which ledger is open
+- `lib/users.ts` – adding and managing users through the Supabase Auth admin API
 - `lib/queries.ts` – all reads and writes (Supabase views + `monthly_report` RPC, or the demo store)
 - `lib/store.ts` – calculations shared by demo mode; they mirror the SQL views
 - `lib/supabase/` – Supabase clients and session refresh used by `proxy.ts`

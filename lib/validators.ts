@@ -55,3 +55,27 @@ export type CustomerFormData = z.infer<typeof CustomerSchema>;
 export type CreditSaleFormData = z.infer<typeof CreditSaleSchema>;
 export type PaymentFormData = z.infer<typeof PaymentSchema>;
 export type MaterialFormData = z.infer<typeof MaterialSchema>;
+
+const password = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(72, 'Password must be 72 characters or fewer');
+
+export const NewUserSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email('Please enter a valid email address')),
+  full_name: z.string().trim().max(80, 'Name is too long'),
+  password,
+  role: z.enum(['admin', 'user']),
+});
+
+export const UpdateUserSchema = NewUserSchema.pick({ full_name: true, role: true });
+
+export const PasswordSchema = password;
+
+export const ChangePasswordSchema = z
+  .object({
+    current: z.string().min(1, 'Please enter your current password'),
+    password,
+    confirm: z.string(),
+  })
+  .refine((d) => d.password === d.confirm, { message: 'The new passwords do not match', path: ['confirm'] });

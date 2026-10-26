@@ -101,3 +101,10 @@ export function calculateDueDate(saleDate: string, creditDays: number): string {
   if (!isValidDateStr(saleDate)) return saleDate;
   return addDays(saleDate, Number(creditDays) || 0);
 }
+
+/**
+ * Display name for a user: full name, or the email when no name is set
+ */
+export function displayName(p: { full_name: string; email: string }): string {
+  return p.full_name.trim() || p.email;
+}

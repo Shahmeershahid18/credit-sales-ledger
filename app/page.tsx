@@ -8,7 +8,7 @@ import {
   FileBarChart,
   MessageCircle,
   ShieldCheck,
-  Tags,
+  UserCog,
   Users,
 } from 'lucide-react';
 import { isSupabaseConfigured } from '@/lib/config';
@@ -48,9 +48,9 @@ const FEATURES = [
     text: 'Send a polite reminder with the outstanding amount and due date in one tap, straight from the ledger.',
   },
   {
-    icon: Tags,
-    title: 'Saved materials',
-    text: 'Materials you sell are saved with their unit and rate, so the next sale takes seconds.',
+    icon: UserCog,
+    title: 'A private ledger for each user',
+    text: 'Every user signs in to their own ledger and sees only their data. Admins add users, reset passwords and can open any ledger.',
   },
 ];
 

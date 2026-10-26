@@ -189,3 +189,21 @@ export type MonthlyReport = MonthTotals & {
   formattedMonth: string;
   customerBreakdown: MonthlyBreakdownRow[];
 };
+
+export type UserRole = 'admin' | 'user';
+
+export type Profile = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  active: boolean;
+  created_at: string;
+};
+
+/** A user in the admin's Users list, with a summary of their ledger */
+export type UserListItem = Profile & {
+  customerCount: number;
+  outstanding: number;
+  overdue: number;
+};

@@ -9,9 +9,37 @@
 export type Database = {
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          id: string;
+          email: string;
+          full_name: string;
+          role: string;
+          active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          email?: string;
+          full_name?: string;
+          role?: string;
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          email?: string;
+          full_name?: string;
+          role?: string;
+          active?: boolean;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       customers: {
         Row: {
           id: string;
+          owner_id: string;
           name: string;
           phone: string | null;
           address: string | null;
@@ -19,6 +47,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          owner_id?: string;
           name: string;
           phone?: string | null;
           address?: string | null;
@@ -26,6 +55,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          owner_id?: string;
           name?: string;
           phone?: string | null;
           address?: string | null;
@@ -36,6 +66,7 @@ export type Database = {
       credit_sales: {
         Row: {
           id: string;
+          owner_id: string;
           customer_id: string;
           sale_date: string;
           material: string;
@@ -50,6 +81,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          owner_id?: string;
           customer_id: string;
           sale_date?: string;
           material: string;
@@ -62,6 +94,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          owner_id?: string;
           customer_id?: string;
           sale_date?: string;
           material?: string;
@@ -74,17 +107,18 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: 'credit_sales_customer_id_fkey';
-            columns: ['customer_id'];
+            foreignKeyName: 'credit_sales_customer_owner_fkey';
+            columns: ['customer_id', 'owner_id'];
             isOneToOne: false;
             referencedRelation: 'customers';
-            referencedColumns: ['id'];
+            referencedColumns: ['id', 'owner_id'];
           },
         ];
       };
       payments: {
         Row: {
           id: string;
+          owner_id: string;
           customer_id: string;
           payment_date: string;
           amount: number;
@@ -95,6 +129,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          owner_id?: string;
           customer_id: string;
           payment_date?: string;
           amount: number;
@@ -105,6 +140,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          owner_id?: string;
           customer_id?: string;
           payment_date?: string;
           amount?: number;
@@ -115,17 +151,18 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: 'payments_customer_id_fkey';
-            columns: ['customer_id'];
+            foreignKeyName: 'payments_customer_owner_fkey';
+            columns: ['customer_id', 'owner_id'];
             isOneToOne: false;
             referencedRelation: 'customers';
-            referencedColumns: ['id'];
+            referencedColumns: ['id', 'owner_id'];
           },
         ];
       };
       materials: {
         Row: {
           id: string;
+          owner_id: string;
           name: string;
           unit: string;
           rate: number | null;
@@ -133,6 +170,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          owner_id?: string;
           name: string;
           unit?: string;
           rate?: number | null;
@@ -140,6 +178,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          owner_id?: string;
           name?: string;
           unit?: string;
           rate?: number | null;
@@ -166,6 +205,7 @@ export type Database = {
           paid_amount: number | null;
           outstanding: number | null;
           days_overdue: number | null;
+          owner_id: string | null;
         };
         Relationships: [];
       };
@@ -182,6 +222,7 @@ export type Database = {
           advance: number | null;
           next_due_date: string | null;
           status: string | null;
+          owner_id: string | null;
         };
         Relationships: [];
       };
@@ -195,17 +236,26 @@ export type Database = {
           d31_60: number | null;
           d61_90: number | null;
           d90_plus: number | null;
+          owner_id: string | null;
         };
         Relationships: [];
       };
     };
     Functions: {
+      is_admin: {
+        Args: Record<PropertyKey, never>;
+        Returns: boolean;
+      };
+      is_active_user: {
+        Args: Record<PropertyKey, never>;
+        Returns: boolean;
+      };
       app_today: {
         Args: Record<PropertyKey, never>;
         Returns: string;
       };
       monthly_report: {
-        Args: { p_month: string };
+        Args: { p_month: string; p_owner: string };
         Returns: {
           material_sold: number;
           payment_received: number;
