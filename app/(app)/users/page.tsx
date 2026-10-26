@@ -1,5 +1,5 @@
 import React from 'react';
-import { redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { getAuthState } from '@/lib/auth';
 import { getUserList } from '@/lib/queries';
@@ -24,8 +24,9 @@ export default async function UsersPage() {
     );
   }
 
+  // Non-admins get a plain "page not found", so the page doesn't reveal it exists
   if (auth.mode !== 'live' || auth.user.role !== 'admin') {
-    redirect('/dashboard');
+    notFound();
   }
 
   const users = await getUserList();

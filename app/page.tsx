@@ -50,7 +50,7 @@ const FEATURES = [
   {
     icon: UserCog,
     title: 'A private ledger for each user',
-    text: 'Every user signs in to their own ledger and sees only their data. Admins add users, reset passwords and can open any ledger.',
+    text: 'Everyone signs in to their own ledger and sees only their own customers, sales and payments.',
   },
 ];
 

@@ -3,13 +3,21 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, AlertCircle, FileBarChart, Plus, ArrowDownLeft, LogOut, UserCog } from 'lucide-react';
+import { LayoutDashboard, Users, AlertCircle, FileBarChart, Plus, ArrowDownLeft, LogOut } from 'lucide-react';
 import { signOutAction } from '@/app/actions/auth';
 import { Logo } from './Logo';
 
+// Extra links (such as admin pages) come from the server as data, so they are not
+// part of the browser code that every user downloads.
+export type NavSection = {
+  title: string;
+  items: { label: string; href: string; icon: React.ReactNode }[];
+};
+
 interface NavigationProps {
   isDemo: boolean;
-  account: { name: string; email: string; isAdmin: boolean } | null;
+  account: { name: string; subtitle: string } | null;
+  extraSection?: NavSection | null;
 }
 
 const navItems = [
@@ -29,10 +37,10 @@ function SignOutButton({ className }: { className: string }) {
   );
 }
 
-export function Navigation({ isDemo, account }: NavigationProps) {
+export function Navigation({ isDemo, account, extraSection }: NavigationProps) {
   const pathname = usePathname();
   const initial = (account?.name[0] ?? 'D').toUpperCase();
-  const usersActive = pathname.startsWith('/users');
+  const extraActive = extraSection?.items.some((item) => pathname.startsWith(item.href)) ?? false;
   const accountActive = pathname.startsWith('/account');
 
   return (
@@ -81,19 +89,27 @@ export function Navigation({ isDemo, account }: NavigationProps) {
             );
           })}
 
-          {account?.isAdmin && (
+          {extraSection && (
             <>
-              <p className="px-3 pt-5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Admin</p>
-              <Link
-                href="/users"
-                aria-current={usersActive ? 'page' : undefined}
-                className={`flex items-center gap-3 h-9 px-3 rounded-lg text-sm font-medium transition-colors ${
-                  usersActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
-                }`}
-              >
-                <UserCog className={`w-4 h-4 ${usersActive ? 'text-emerald-400' : ''}`} />
-                Users
-              </Link>
+              <p className="px-3 pt-5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                {extraSection.title}
+              </p>
+              {extraSection.items.map((item) => {
+                const active = pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={active ? 'page' : undefined}
+                    className={`flex items-center gap-3 h-9 px-3 rounded-lg text-sm font-medium transition-colors ${
+                      active ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                    }`}
+                  >
+                    <span className={`flex ${active ? 'text-emerald-400' : ''}`}>{item.icon}</span>
+                    {item.label}
+                  </Link>
+                );
+              })}
             </>
           )}
         </nav>
@@ -112,7 +128,7 @@ export function Navigation({ isDemo, account }: NavigationProps) {
               </span>
               <span className="min-w-0">
                 <span className="block text-sm text-zinc-200 truncate">{account.name}</span>
-                <span className="block text-xs text-zinc-500 truncate">{account.isAdmin ? 'Admin' : account.email}</span>
+                <span className="block text-xs text-zinc-500 truncate">{account.subtitle}</span>
               </span>
             </Link>
           ) : (
@@ -154,7 +170,7 @@ export function Navigation({ isDemo, account }: NavigationProps) {
               href="/account"
               aria-label="Account"
               className={`ml-0.5 w-8 h-8 rounded-full text-sm font-medium flex items-center justify-center ${
-                accountActive || usersActive ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300'
+                accountActive || extraActive ? 'bg-emerald-600 text-white' : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300'
               }`}
             >
               {initial}

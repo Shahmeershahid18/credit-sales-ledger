@@ -41,13 +41,11 @@ export default async function AccountPage() {
             <p className="font-semibold text-zinc-900 truncate">{displayName(user)}</p>
             <p className="text-sm text-zinc-500 truncate">{user.email}</p>
           </div>
-          <span
-            className={`ml-auto shrink-0 px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset ${
-              isAdmin ? 'bg-violet-50 text-violet-700 ring-violet-600/20' : 'bg-zinc-100 text-zinc-700 ring-zinc-500/20'
-            }`}
-          >
-            {isAdmin ? 'Admin' : 'User'}
-          </span>
+          {isAdmin && (
+            <span className="ml-auto shrink-0 px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-violet-50 text-violet-700 ring-violet-600/20">
+              Admin
+            </span>
+          )}
         </div>
         <p className="mt-4 pt-4 border-t border-zinc-100 text-xs text-zinc-500">Member since {formatDate(user.created_at.slice(0, 10))}</p>
       </section>

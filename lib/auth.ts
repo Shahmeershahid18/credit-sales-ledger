@@ -71,7 +71,7 @@ export async function requireUser(): Promise<Extract<AuthState, { mode: 'demo' |
     throw new Error('Your session has expired. Please sign in again.');
   }
   if (state.mode === 'blocked') {
-    throw new Error('Your account has been disabled. Contact your administrator.');
+    throw new Error('This account has been disabled.');
   }
   return state;
 }
@@ -82,7 +82,7 @@ export async function requireUser(): Promise<Extract<AuthState, { mode: 'demo' |
 export async function requireAdmin(): Promise<Profile> {
   const state = await requireUser();
   if (state.mode !== 'live' || state.user.role !== 'admin') {
-    throw new Error('Only admins can manage users.');
+    throw new Error('You do not have permission to do this.');
   }
   return state.user;
 }

@@ -52,7 +52,7 @@ async function getCtx(): Promise<Ctx | null> {
   if (!db) return null;
 
   const auth = await getAuthState();
-  if (auth.mode === 'blocked') throw new Error('Your account has been disabled. Contact your administrator.');
+  if (auth.mode === 'blocked') throw new Error('This account has been disabled.');
   if (auth.mode !== 'live') throw new Error('Your session has expired. Please sign in again.');
   return { db, ownerId: auth.owner.id };
 }

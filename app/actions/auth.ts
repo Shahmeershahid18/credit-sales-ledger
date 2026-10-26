@@ -21,7 +21,7 @@ export async function signInAction(_prev: SignInState, formData: FormData): Prom
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
     if (error.code === 'user_banned') {
-      return { error: 'This account has been disabled. Contact your administrator.', email };
+      return { error: 'This account has been disabled.', email };
     }
     if (error.code === 'invalid_credentials') {
       return { error: 'Incorrect email or password.', email };

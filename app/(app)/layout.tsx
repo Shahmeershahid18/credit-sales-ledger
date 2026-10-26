@@ -1,6 +1,6 @@
 import React from 'react';
 import { redirect } from 'next/navigation';
-import { Eye, Info, Lock } from 'lucide-react';
+import { Eye, Info, Lock, UserCog } from 'lucide-react';
 import { Navigation } from '@/components/Navigation';
 import { LogoMark } from '@/components/Logo';
 import { buttonClass, cardClass } from '@/components/ui';
@@ -25,13 +25,17 @@ export default async function AppLayout({
 
   const isDemo = auth.mode === 'demo';
   const user = auth.mode === 'live' ? auth.user : null;
+  const isAdmin = user?.role === 'admin';
   const viewing = auth.mode === 'live' && auth.owner.id !== auth.user.id ? auth.owner : null;
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-zinc-50 text-zinc-900">
       <Navigation
         isDemo={isDemo}
-        account={user ? { name: displayName(user), email: user.email, isAdmin: user.role === 'admin' } : null}
+        account={user ? { name: displayName(user), subtitle: isAdmin ? 'Admin' : user.email } : null}
+        extraSection={
+          isAdmin ? { title: 'Admin', items: [{ label: 'Users', href: '/users', icon: <UserCog className="w-4 h-4" /> }] } : null
+        }
       />
 
       <main className="flex-1 min-w-0">
@@ -75,9 +79,7 @@ function BlockedScreen({ email, reason }: { email: string | null; reason: 'disab
           {reason === 'disabled' ? 'Account disabled' : 'Account not set up'}
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
-          {reason === 'disabled'
-            ? 'Your account has been disabled. Contact your administrator to get access again.'
-            : 'Your account has no profile yet. Ask your administrator to set it up.'}
+          {reason === 'disabled' ? 'This account has been disabled.' : 'This account is not set up yet.'}
         </p>
         {email && <p className="mt-3 text-xs text-zinc-400">{email}</p>}
         <form action={signOutAction} className="mt-5">
