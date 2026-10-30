@@ -16,7 +16,7 @@ import { Logo } from '@/components/Logo';
 import { buttonClass } from '@/components/ui';
 
 export const metadata: Metadata = {
-  title: { absolute: 'Credit Ledger · Credit sales, payments and overdue tracking' },
+  title: { absolute: 'Credit Ledger · Credit sales, purchases and payments' },
   description:
     'Record material sold and bought on credit, payments received and made, and due dates. See what customers owe you and what you owe vendors, automatically.',
 };
@@ -96,14 +96,14 @@ export default function LandingPage() {
           <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-14 sm:pt-20 pb-12 text-center">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-emerald-200 bg-white text-xs font-medium text-emerald-800">
               <ShieldCheck className="w-3.5 h-3.5" />
-              Credit sale and recovery tracking
+              Credit sales, purchases and payments
             </span>
             <h1 className="mt-5 text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-balance max-w-3xl mx-auto">
-              Know who owes you, how much, and since when.
+              Know who owes you, and who you owe.
             </h1>
             <p className="mt-5 text-base sm:text-lg text-zinc-600 max-w-2xl mx-auto text-pretty">
-              Credit Ledger records the material you give on credit and the payments you receive, then shows
-              outstanding and overdue balances for every customer, automatically.
+              Credit Ledger records the material you sell and buy on credit and every payment received or made,
+              then shows what customers owe you, what you owe vendors and what is overdue, automatically.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link href={cta.href} className={buttonClass('primary', 'h-11 px-6 text-base w-full sm:w-auto')}>
@@ -127,7 +127,7 @@ export default function LandingPage() {
             <div className="max-w-2xl">
               <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">Everything a credit book needs</h2>
               <p className="mt-3 text-zinc-600">
-                Built around how material is actually sold on credit: terms, partial payments and follow-ups.
+                Built around how material is actually sold and bought on credit: terms, partial payments and follow-ups.
               </p>
             </div>
             <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -169,8 +169,8 @@ export default function LandingPage() {
         <section className="px-4 sm:px-6 pb-16 sm:pb-24">
           <div className="max-w-6xl mx-auto rounded-2xl bg-zinc-900 px-6 py-12 sm:px-12 sm:py-14 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
-              <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Stop chasing payments from memory.</h2>
-              <p className="mt-2 text-zinc-400">Every balance, due date and reminder in one place.</p>
+              <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Stop keeping your credit book in your head.</h2>
+              <p className="mt-2 text-zinc-400">What you will receive, what you have to pay and when, in one place.</p>
             </div>
             <Link
               href={cta.href}
@@ -198,10 +198,10 @@ export default function LandingPage() {
  */
 function ProductPreview() {
   const stats = [
-    { label: 'Total credit sale', value: 'Rs. 1,540,000', color: 'text-zinc-900' },
-    { label: 'Payment received', value: 'Rs. 640,000', color: 'text-emerald-700' },
-    { label: 'Outstanding', value: 'Rs. 900,000', color: 'text-amber-700' },
-    { label: 'Overdue', value: 'Rs. 270,000', color: 'text-rose-700' },
+    { label: 'To receive', value: 'Rs. 900,000', sub: 'Rs. 270,000 overdue', color: 'text-amber-700' },
+    { label: 'To pay', value: 'Rs. 436,200', sub: 'Rs. 15,000 overdue', color: 'text-rose-700' },
+    { label: 'Net position', value: 'Rs. 463,800', sub: 'Owed to you', color: 'text-emerald-700' },
+    { label: 'Due in 7 days', value: 'Rs. 145,200', sub: 'Bills to pay', color: 'text-zinc-900' },
   ];
   const aging = [
     { label: 'Not due', amount: 'Rs. 630,000', pct: 70, color: 'bg-emerald-500' },
@@ -209,9 +209,8 @@ function ProductPreview() {
     { label: '31–60 days', amount: 'Rs. 220,000', pct: 24, color: 'bg-orange-500' },
   ];
   const rows = [
-    { name: 'Metro Builders & Co.', amount: 'Rs. 350,000', status: 'Overdue', cls: 'bg-rose-50 text-rose-700 ring-rose-600/20' },
-    { name: 'Khan Construction', amount: 'Rs. 260,000', status: 'Pending', cls: 'bg-amber-50 text-amber-800 ring-amber-600/20' },
-    { name: 'Ali Traders', amount: 'Rs. 200,000', status: 'Overdue', cls: 'bg-rose-50 text-rose-700 ring-rose-600/20' },
+    { name: 'Ittefaq Steel Mills', amount: 'Rs. 276,000', status: 'Pending', cls: 'bg-amber-50 text-amber-800 ring-amber-600/20' },
+    { name: 'Lucky Cement Depot', amount: 'Rs. 160,200', status: 'Overdue', cls: 'bg-rose-50 text-rose-700 ring-rose-600/20' },
   ];
 
   return (
@@ -227,12 +226,13 @@ function ProductPreview() {
             <div key={s.label} className="bg-white rounded-xl border border-zinc-200 p-3 sm:p-4">
               <p className="text-[11px] sm:text-xs text-zinc-500">{s.label}</p>
               <p className={`mt-1 text-sm sm:text-lg font-semibold tabular-nums ${s.color}`}>{s.value}</p>
+              <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-500">{s.sub}</p>
             </div>
           ))}
         </div>
         <div className="grid md:grid-cols-2 gap-3">
           <div className="bg-white rounded-xl border border-zinc-200 p-4">
-            <p className="text-xs font-semibold text-zinc-900">Outstanding by age</p>
+            <p className="text-xs font-semibold text-zinc-900">Receivable by age</p>
             <div className="mt-3 h-3 rounded-full overflow-hidden flex">
               {aging.map((a) => (
                 <span key={a.label} className={a.color} style={{ width: `${a.pct}%` }} />
@@ -249,7 +249,7 @@ function ProductPreview() {
             </ul>
           </div>
           <div className="bg-white rounded-xl border border-zinc-200 p-4">
-            <p className="text-xs font-semibold text-zinc-900">Top outstanding customers</p>
+            <p className="text-xs font-semibold text-zinc-900">Bills to pay</p>
             <ul className="mt-2 divide-y divide-zinc-100">
               {rows.map((r) => (
                 <li key={r.name} className="py-2 flex items-center justify-between gap-3 text-xs">
