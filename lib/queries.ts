@@ -14,7 +14,9 @@ import {
   calculateMonthTotals,
   buildMonthlyBreakdown,
   buildMonthlyReport,
+  calculateDueSoon,
 } from './store';
+import { ContactKind, SIDES } from './contacts';
 import {
   AgingRow,
   Customer,
@@ -22,6 +24,7 @@ import {
   CustomerLedger,
   CustomerStatus,
   CustomerSummary,
+  DashboardData,
   DashboardStats,
   Material,
   MonthTotals,
@@ -32,7 +35,7 @@ import {
   PaymentMethod,
   UserListItem,
 } from './types';
-import { calculateDueDate, getCurrentMonthStr, getTodayDateStr, nextMonthStart } from './format';
+import { addDays, calculateDueDate, getCurrentMonthStr, getTodayDateStr, nextMonthStart } from './format';
 
 // All DB reads and writes live here. When Supabase is configured they go to the
 // database (views + monthly_report RPC), scoped to one user's ledger; otherwise they
@@ -62,19 +65,19 @@ async function getCtx(): Promise<Ctx | null> {
  * The query must have a stable order.
  */
 export async function fetchAll<T>(
-  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>
 ): Promise<T[]> {
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await page(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
+    if (error) throw schemaError(error);
     rows.push(...(data ?? []));
     if (!data || data.length < PAGE_SIZE) return rows;
   }
 }
 
-function check<T>({ data, error }: { data: T | null; error: { message: string } | null }): T {
-  if (error) throw new Error(error.message);
+function check<T>({ data, error }: { data: T | null; error: { message: string; code?: string } | null }): T {
+  if (error) throw schemaError(error);
   if (data === null) throw new Error('No data returned');
   return data;
 }
@@ -92,7 +95,8 @@ type AgingViewRow = Database['public']['Views']['overdue_aging']['Row'];
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
 
 function toCustomer(r: CustomerRow): Customer {
-  return { id: r.id, name: r.name, phone: r.phone, address: r.address, created_at: r.created_at };
+  const kind: ContactKind = r.kind === 'vendor' ? 'vendor' : 'customer';
+  return { id: r.id, kind, name: r.name, phone: r.phone, address: r.address, created_at: r.created_at };
 }
 
 function toSale(r: SaleRow): CreditSale {
@@ -160,32 +164,41 @@ function toAgingRow(r: AgingViewRow): AgingRow {
 }
 
 // ---------------------------------------------------------------------------
-// Supabase readers
+// Supabase readers. Every reader is for one side: customers or vendors.
 // ---------------------------------------------------------------------------
 
-async function fetchSummaries({ db, ownerId }: Ctx): Promise<CustomerSummary[]> {
+async function fetchSummaries({ db, ownerId }: Ctx, kind: ContactKind): Promise<CustomerSummary[]> {
   const rows = await fetchAll((from, to) =>
-    db.from('customer_summary').select('*').eq('owner_id', ownerId).order('name').order('customer_id').range(from, to)
+    db
+      .from('customer_summary')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .eq('kind', kind)
+      .order('name')
+      .order('customer_id')
+      .range(from, to)
   );
   return rows.map(toSummary);
 }
 
-async function fetchAgingRows({ db, ownerId }: Ctx, creditDays?: number): Promise<AgingRow[]> {
+async function fetchAgingRows({ db, ownerId }: Ctx, kind: ContactKind, creditDays?: number): Promise<AgingRow[]> {
   const rows = await fetchAll((from, to) => {
-    let q = db.from('overdue_aging').select('*').eq('owner_id', ownerId);
+    let q = db.from('overdue_aging').select('*').eq('owner_id', ownerId).eq('kind', kind);
     if (creditDays) q = q.eq('credit_days', creditDays);
     return q.order('customer_id').order('credit_days').range(from, to);
   });
   return rows.map(toAgingRow);
 }
 
-async function fetchCustomers({ db, ownerId }: Ctx): Promise<Customer[]> {
-  const rows = await fetchAll((from, to) => db.from('customers').select('*').eq('owner_id', ownerId).order('name').order('id').range(from, to));
+async function fetchCustomers({ db, ownerId }: Ctx, kind: ContactKind): Promise<Customer[]> {
+  const rows = await fetchAll((from, to) =>
+    db.from('customers').select('*').eq('owner_id', ownerId).eq('kind', kind).order('name').order('id').range(from, to)
+  );
   return rows.map(toCustomer);
 }
 
-async function fetchMonthTotals({ db, ownerId }: Ctx, month: string): Promise<MonthTotals> {
-  const rows = check(await db.rpc('monthly_report', { p_month: `${month}-01`, p_owner: ownerId }));
+async function fetchMonthTotals({ db, ownerId }: Ctx, kind: ContactKind, month: string): Promise<MonthTotals> {
+  const rows = check(await db.rpc('monthly_report', { p_month: `${month}-01`, p_owner: ownerId, p_kind: kind }));
   const r = rows[0];
   return {
     materialSold: num(r?.material_sold),
@@ -195,43 +208,89 @@ async function fetchMonthTotals({ db, ownerId }: Ctx, month: string): Promise<Mo
   };
 }
 
+async function fetchDueSoon({ db, ownerId }: Ctx, kind: ContactKind): Promise<number> {
+  const today = getTodayDateStr();
+  const rows = await fetchAll((from, to) =>
+    db
+      .from('sale_balances')
+      .select('id, outstanding')
+      .eq('owner_id', ownerId)
+      .eq('kind', kind)
+      .gt('outstanding', 0)
+      .gte('due_date', today)
+      .lte('due_date', addDays(today, 7))
+      .order('id')
+      .range(from, to)
+  );
+  return rows.reduce((total, r) => total + num(r.outstanding), 0);
+}
+
 // ---------------------------------------------------------------------------
-// Public queries
+// Demo store, one side at a time
 // ---------------------------------------------------------------------------
 
-function demoSummaries(): CustomerSummary[] {
-  const { customers, sales, payments } = getDemoData();
+function demoSide(kind: ContactKind) {
+  const data = getDemoData();
+  const customers = data.customers.filter((c) => c.kind === kind);
+  const ids = new Set(customers.map((c) => c.id));
+  return {
+    customers,
+    sales: data.sales.filter((s) => ids.has(s.customer_id)),
+    payments: data.payments.filter((p) => ids.has(p.customer_id)),
+  };
+}
+
+function demoSummaries(kind: ContactKind): CustomerSummary[] {
+  const { customers, sales, payments } = demoSide(kind);
   return calculateCustomerSummaries(customers, calculateSaleBalances(sales, payments), payments).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
 }
 
-export async function getDashboardTotals(): Promise<DashboardStats> {
+function demoDashboard(kind: ContactKind, month: string): DashboardStats {
+  const { sales, payments } = demoSide(kind);
+  const balances = calculateSaleBalances(sales, payments);
+  return buildDashboardStats(
+    demoSummaries(kind),
+    calculateAgingRows(balances),
+    month,
+    calculateMonthTotals(month, sales, payments, balances),
+    calculateDueSoon(balances)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Public queries
+// ---------------------------------------------------------------------------
+
+/**
+ * Dashboard figures for both sides: receivables (customers) and payables (vendors)
+ */
+export async function getDashboard(): Promise<DashboardData> {
   const month = getCurrentMonthStr();
   const ctx = await getCtx();
 
   if (!ctx) {
-    const { sales, payments } = getDemoData();
-    const balances = calculateSaleBalances(sales, payments);
-    return buildDashboardStats(
-      demoSummaries(),
-      calculateAgingRows(balances),
-      month,
-      calculateMonthTotals(month, sales, payments, balances)
-    );
+    return { customer: demoDashboard('customer', month), vendor: demoDashboard('vendor', month) };
   }
 
-  const [summaries, agingRows, totals] = await Promise.all([
-    fetchSummaries(ctx),
-    fetchAgingRows(ctx),
-    fetchMonthTotals(ctx, month),
-  ]);
-  return buildDashboardStats(summaries, agingRows, month, totals);
+  const side = async (kind: ContactKind) => {
+    const [summaries, agingRows, totals, dueSoon] = await Promise.all([
+      fetchSummaries(ctx, kind),
+      fetchAgingRows(ctx, kind),
+      fetchMonthTotals(ctx, kind, month),
+      fetchDueSoon(ctx, kind),
+    ]);
+    return buildDashboardStats(summaries, agingRows, month, totals, dueSoon);
+  };
+
+  const [customer, vendor] = await Promise.all([side('customer'), side('vendor')]);
+  return { customer, vendor };
 }
 
-export async function getCustomerCards(search?: string): Promise<CustomerSummary[]> {
+export async function getCustomerCards(kind: ContactKind, search?: string): Promise<CustomerSummary[]> {
   const ctx = await getCtx();
-  const summaries = ctx ? await fetchSummaries(ctx) : demoSummaries();
+  const summaries = ctx ? await fetchSummaries(ctx, kind) : demoSummaries(kind);
 
   const query = search?.toLowerCase().trim();
   if (!query) return summaries;
@@ -244,24 +303,34 @@ export async function getCustomerCards(search?: string): Promise<CustomerSummary
   );
 }
 
-export async function getCustomers(): Promise<Customer[]> {
+export async function getCustomers(kind: ContactKind): Promise<Customer[]> {
   const ctx = await getCtx();
   if (!ctx) {
-    return [...getDemoData().customers].sort((a, b) => a.name.localeCompare(b.name));
+    return [...demoSide(kind).customers].sort((a, b) => a.name.localeCompare(b.name));
   }
-  return fetchCustomers(ctx);
+  return fetchCustomers(ctx, kind);
 }
 
-export async function getCustomerById(id: string): Promise<Customer | null> {
+/**
+ * A customer or vendor of the open ledger. Returns null when it does not exist or
+ * is on the other side (a vendor opened under /customers, for example).
+ */
+export async function getCustomerById(id: string, kind: ContactKind): Promise<Customer | null> {
   const ctx = await getCtx();
   if (!ctx) {
-    return getDemoData().customers.find((c) => c.id === id) || null;
+    return getDemoData().customers.find((c) => c.id === id && c.kind === kind) || null;
   }
 
   if (!UUID_RE.test(id)) return null;
   const { db, ownerId } = ctx;
-  const { data, error } = await db.from('customers').select('*').eq('id', id).eq('owner_id', ownerId).maybeSingle();
-  if (error) throw new Error(error.message);
+  const { data, error } = await db
+    .from('customers')
+    .select('*')
+    .eq('id', id)
+    .eq('owner_id', ownerId)
+    .eq('kind', kind)
+    .maybeSingle();
+  if (error) throw schemaError(error);
   return data ? toCustomer(data) : null;
 }
 
@@ -285,25 +354,25 @@ export async function getLedger(customerId: string): Promise<CustomerLedger> {
   return calculateCustomerLedger(customerId, sales.map(toSale), payments.map(toPayment), getTodayDateStr());
 }
 
-export async function getOverdue(creditDays?: number): Promise<OverdueAgingBucket[]> {
+export async function getOverdue(kind: ContactKind, creditDays?: number): Promise<OverdueAgingBucket[]> {
   const ctx = await getCtx();
 
   if (!ctx) {
-    const { customers, sales, payments } = getDemoData();
+    const { customers, sales, payments } = demoSide(kind);
     const names = new Map(customers.map((c) => [c.id, c.name]));
     return groupAgingByCustomer(calculateAgingRows(calculateSaleBalances(sales, payments)), names, creditDays);
   }
 
-  const [agingRows, customers] = await Promise.all([fetchAgingRows(ctx, creditDays), fetchCustomers(ctx)]);
+  const [agingRows, customers] = await Promise.all([fetchAgingRows(ctx, kind, creditDays), fetchCustomers(ctx, kind)]);
   const names = new Map(customers.map((c) => [c.id, c.name]));
   return groupAgingByCustomer(agingRows, names, creditDays);
 }
 
-export async function getMonthlyReportData(month: string): Promise<MonthlyReport> {
+export async function getMonthlyReportData(kind: ContactKind, month: string): Promise<MonthlyReport> {
   const ctx = await getCtx();
 
   if (!ctx) {
-    const { customers, sales, payments } = getDemoData();
+    const { customers, sales, payments } = demoSide(kind);
     const totals = calculateMonthTotals(month, sales, payments, calculateSaleBalances(sales, payments));
     return buildMonthlyReport(month, totals, buildMonthlyBreakdown(month, customers, sales, payments));
   }
@@ -312,10 +381,12 @@ export async function getMonthlyReportData(month: string): Promise<MonthlyReport
   const start = `${month}-01`;
   const end = nextMonthStart(month);
 
+  // Entries and payments of the whole ledger for the month; the breakdown keeps
+  // only those of this side's contacts.
   const [totals, customers, soldOrDue, payments] = await Promise.all([
-    fetchMonthTotals(ctx, month),
-    fetchCustomers(ctx),
-    // Sales either sold or falling due in this month
+    fetchMonthTotals(ctx, kind, month),
+    fetchCustomers(ctx, kind),
+    // Entries either made or falling due in this month
     fetchAll((from, to) =>
       db
         .from('credit_sales')
@@ -338,8 +409,8 @@ export async function getMonthlyReportData(month: string): Promise<MonthlyReport
 }
 
 /**
- * A customer's sales, newest first, with what is still unpaid on each.
- * Powers the "For sale" picker on the payment form.
+ * A contact's sales (or purchases), newest first, with what is still unpaid on each.
+ * Powers the "For sale" / "For purchase" picker on the payment form.
  */
 export async function getCustomerSaleOptions(customerId: string): Promise<SaleOption[]> {
   const ctx = await getCtx();
@@ -382,13 +453,13 @@ export async function getCustomerSaleOptions(customerId: string): Promise<SaleOp
 }
 
 // ---------------------------------------------------------------------------
-// Materials (quick-pick pills on the sale form)
+// Materials (quick-pick pills on the sale and purchase forms)
 // ---------------------------------------------------------------------------
 
 type MaterialRow = Database['public']['Tables']['materials']['Row'];
-type MaterialInput = { name: string; unit: string; rate: number | null };
+type MaterialInput = { name: string; unit: string; rate: number | null; purchase_rate: number | null };
 
-const MATERIALS_MIGRATION = 'supabase/migrations/20261026020000_materials_and_payment_sale.sql';
+const LATEST_MIGRATION = 'supabase/migrations/20261031000000_vendors.sql';
 
 /**
  * True when a PostgREST error means a table or column from a newer migration is missing
@@ -397,18 +468,29 @@ function isMissingSchema(error: { code?: string; message: string }) {
   return ['PGRST205', 'PGRST204', '42P01', '42703'].includes(error.code ?? '') || /schema cache|does not exist/i.test(error.message);
 }
 
-function materialError(error: { code?: string; message: string }): Error {
+function schemaError(error: { code?: string; message: string }): Error {
   if (isMissingSchema(error)) {
-    return new Error(`Saved materials need a database update. Run ${MATERIALS_MIGRATION} in the Supabase SQL Editor.`);
-  }
-  if (error.code === '23505') {
-    return new Error('A material with this name already exists.');
+    return new Error(`The database needs an update. Run ${LATEST_MIGRATION} in the Supabase SQL Editor.`);
   }
   return new Error(error.message);
 }
 
+function materialError(error: { code?: string; message: string }): Error {
+  if (error.code === '23505') {
+    return new Error('A material with this name already exists.');
+  }
+  return schemaError(error);
+}
+
 function toMaterial(r: MaterialRow): Material {
-  return { id: r.id, name: r.name, unit: r.unit, rate: r.rate === null ? null : num(r.rate), created_at: r.created_at };
+  return {
+    id: r.id,
+    name: r.name,
+    unit: r.unit,
+    rate: r.rate === null ? null : num(r.rate),
+    purchase_rate: r.purchase_rate === null || r.purchase_rate === undefined ? null : num(r.purchase_rate),
+    created_at: r.created_at,
+  };
 }
 
 const byName = (a: Material, b: Material) => a.name.localeCompare(b.name);
@@ -448,14 +530,14 @@ export async function createMaterial(input: MaterialInput): Promise<Material> {
   return toMaterial(data);
 }
 
-export async function updateMaterial(id: string, input: MaterialInput): Promise<Material> {
+export async function updateMaterial(id: string, input: Partial<MaterialInput>): Promise<Material> {
   const ctx = await getCtx();
 
   if (!ctx) {
     const list = getDemoData().materials;
     const material = list.find((m) => m.id === id);
     if (!material) throw new Error('Material not found');
-    if (list.some((m) => m.id !== id && sameName(m.name, input.name))) {
+    if (input.name !== undefined && list.some((m) => m.id !== id && sameName(m.name, input.name!))) {
       throw new Error('A material with this name already exists.');
     }
     Object.assign(material, input);
@@ -491,16 +573,23 @@ export async function deleteMaterial(id: string): Promise<void> {
 }
 
 /**
- * Saves a material used in a sale as a new pill if it is not saved yet.
- * Existing pills are left as they are. Never fails the sale.
+ * Saves a material used in a sale or purchase as a new pill if it is not saved yet,
+ * with the rate as its sale or purchase rate. A saved pill only gets the rate when
+ * it has none for that side yet. Never fails the sale or purchase.
  */
-async function rememberMaterial(input: MaterialInput): Promise<void> {
+async function rememberMaterial(kind: ContactKind, input: { name: string; unit: string; rate: number }): Promise<void> {
+  const rateField = kind === 'vendor' ? 'purchase_rate' : 'rate';
   try {
     const { materials, available } = await getMaterials();
-    if (!available || materials.some((m) => sameName(m.name, input.name))) return;
-    await createMaterial(input);
+    if (!available) return;
+    const saved = materials.find((m) => sameName(m.name, input.name));
+    if (!saved) {
+      await createMaterial({ name: input.name, unit: input.unit, rate: null, purchase_rate: null, [rateField]: input.rate });
+    } else if (saved[rateField] === null) {
+      await updateMaterial(saved.id, { [rateField]: input.rate });
+    }
   } catch {
-    // Duplicate created at the same moment, or no materials table yet: the sale is already saved
+    // Duplicate created at the same moment, or no materials table yet: the entry is already saved
   }
 }
 
@@ -514,31 +603,60 @@ function newDemoId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 }
 
-export async function createCustomer(data: CustomerInput): Promise<Customer> {
-  const values = { name: data.name, phone: data.phone || null, address: data.address || null };
+/**
+ * Throws unless the contact exists in the open ledger on the given side, so a
+ * purchase can never be saved against a customer or a sale against a vendor.
+ */
+async function assertContact(ctx: Ctx | null, customerId: string, kind: ContactKind): Promise<void> {
+  const notFound = new Error(`${SIDES[kind].One} not found`);
+  if (!ctx) {
+    if (!getDemoData().customers.some((c) => c.id === customerId && c.kind === kind)) throw notFound;
+    return;
+  }
+  if (!UUID_RE.test(customerId)) throw notFound;
+  const { data, error } = await ctx.db
+    .from('customers')
+    .select('id')
+    .eq('id', customerId)
+    .eq('owner_id', ctx.ownerId)
+    .eq('kind', kind)
+    .maybeSingle();
+  if (error) throw schemaError(error);
+  if (!data) throw notFound;
+}
+
+export async function createCustomer(kind: ContactKind, data: CustomerInput): Promise<Customer> {
+  const values = { kind, name: data.name, phone: data.phone || null, address: data.address || null };
   const ctx = await getCtx();
 
   if (!ctx) {
-    const customer: Customer = { id: newDemoId('cust'), ...values, created_at: new Date().toISOString() };
+    const customer: Customer = { id: newDemoId(kind === 'vendor' ? 'vend' : 'cust'), ...values, created_at: new Date().toISOString() };
     getDemoData().customers.push(customer);
     return customer;
   }
 
-  return toCustomer(check(await ctx.db.from('customers').insert({ ...values, owner_id: ctx.ownerId }).select().single()));
+  const { data: row, error } = await ctx.db
+    .from('customers')
+    .insert({ ...values, owner_id: ctx.ownerId })
+    .select()
+    .single();
+  if (error) throw schemaError(error);
+  return toCustomer(row);
 }
 
+/** Updates name and contact details. A contact's side (customer or vendor) never changes. */
 export async function updateCustomer(id: string, data: CustomerInput): Promise<Customer> {
   const values = { name: data.name, phone: data.phone || null, address: data.address || null };
   const ctx = await getCtx();
 
   if (!ctx) {
     const customer = getDemoData().customers.find((c) => c.id === id);
-    if (!customer) throw new Error('Customer not found');
+    if (!customer) throw new Error('Not found');
     Object.assign(customer, values);
     return customer;
   }
 
-  if (!UUID_RE.test(id)) throw new Error('Customer not found');
+  if (!UUID_RE.test(id)) throw new Error('Not found');
   const { data: row, error } = await ctx.db
     .from('customers')
     .update(values)
@@ -546,21 +664,27 @@ export async function updateCustomer(id: string, data: CustomerInput): Promise<C
     .eq('owner_id', ctx.ownerId)
     .select()
     .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!row) throw new Error('Customer not found');
+  if (error) throw schemaError(error);
+  if (!row) throw new Error('Not found');
   return toCustomer(row);
 }
 
-export async function createCreditSale(data: {
-  customer_id: string;
-  sale_date: string;
-  material: string;
-  quantity: number;
-  unit: string;
-  rate: number;
-  credit_days: number;
-  notes?: string | null;
-}): Promise<CreditSale> {
+/**
+ * Saves a credit sale (customer) or a credit purchase (vendor)
+ */
+export async function createCreditSale(
+  kind: ContactKind,
+  data: {
+    customer_id: string;
+    sale_date: string;
+    material: string;
+    quantity: number;
+    unit: string;
+    rate: number;
+    credit_days: number;
+    notes?: string | null;
+  }
+): Promise<CreditSale> {
   const values = {
     customer_id: data.customer_id,
     sale_date: data.sale_date,
@@ -572,81 +696,79 @@ export async function createCreditSale(data: {
     notes: data.notes || null,
   };
   const ctx = await getCtx();
+  await assertContact(ctx, data.customer_id, kind);
   let sale: CreditSale;
 
   if (!ctx) {
-    const store = getDemoData();
-    if (!store.customers.some((c) => c.id === data.customer_id)) throw new Error('Customer not found');
     sale = {
-      id: newDemoId('sale'),
+      id: newDemoId(kind === 'vendor' ? 'pur' : 'sale'),
       ...values,
       amount: data.quantity * data.rate,
       due_date: calculateDueDate(data.sale_date, data.credit_days),
       created_at: new Date().toISOString(),
     };
-    store.sales.push(sale);
+    getDemoData().sales.push(sale);
   } else {
-    // amount and due_date are generated columns in the database. The customer must
-    // be in the same ledger (foreign key on customer_id + owner_id).
-    if (!UUID_RE.test(data.customer_id)) throw new Error('Customer not found');
+    // amount and due_date are generated columns in the database
     const { data: row, error } = await ctx.db
       .from('credit_sales')
       .insert({ ...values, owner_id: ctx.ownerId })
       .select()
       .single();
-    if (error) throw new Error(error.code === '23503' ? 'Customer not found' : error.message);
+    if (error) throw new Error(error.code === '23503' ? `${SIDES[kind].One} not found` : error.message);
     sale = toSale(row);
   }
 
   // New materials become pills so they don't have to be typed again
-  await rememberMaterial({ name: data.material, unit: data.unit, rate: data.rate });
+  await rememberMaterial(kind, { name: data.material, unit: data.unit, rate: data.rate });
   return sale;
 }
 
-export async function createPayment(data: {
-  customer_id: string;
-  payment_date: string;
-  amount: number;
-  method: PaymentMethod;
-  sale_id?: string | null;
-  notes?: string | null;
-}): Promise<Payment> {
+/**
+ * Saves a payment received (customer) or a payment made (vendor)
+ */
+export async function createPayment(
+  kind: ContactKind,
+  data: {
+    customer_id: string;
+    payment_date: string;
+    amount: number;
+    method: PaymentMethod;
+    sale_id?: string | null;
+    notes?: string | null;
+  }
+): Promise<Payment> {
+  const terms = SIDES[kind];
+  const wrongEntry = `The selected ${terms.entry} does not belong to this ${terms.one}.`;
   const values = {
     customer_id: data.customer_id,
     payment_date: data.payment_date,
     amount: data.amount,
     method: data.method,
     notes: data.notes || null,
-    // Only sent when set, so payments still save before the sale_id migration is run
     ...(data.sale_id ? { sale_id: data.sale_id } : {}),
   };
   const ctx = await getCtx();
+  await assertContact(ctx, data.customer_id, kind);
 
   if (!ctx) {
     const store = getDemoData();
-    if (!store.customers.some((c) => c.id === data.customer_id)) throw new Error('Customer not found');
     if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id)) {
-      throw new Error('The selected sale does not belong to this customer.');
+      throw new Error(wrongEntry);
     }
     const payment: Payment = { id: newDemoId('pmt'), ...values, created_at: new Date().toISOString() };
     store.payments.push(payment);
     return payment;
   }
 
-  if (!UUID_RE.test(data.customer_id)) throw new Error('Customer not found');
   const { data: row, error } = await ctx.db
     .from('payments')
     .insert({ ...values, owner_id: ctx.ownerId })
     .select()
     .single();
   if (error) {
-    if (data.sale_id && isMissingSchema(error)) {
-      throw new Error(`Linking a payment to a sale needs a database update. Run ${MATERIALS_MIGRATION} in the Supabase SQL Editor.`);
-    }
-    if (error.code === '23503') {
-      throw new Error(/sale/.test(error.message) ? 'The selected sale does not belong to this customer.' : 'Customer not found');
-    }
-    throw new Error(error.message);
+    if (error.code === '23503') throw new Error(/sale/.test(error.message) ? wrongEntry : `${terms.One} not found`);
+    throw schemaError(error);
   }
   return toPayment(row);
 }
@@ -656,8 +778,8 @@ export async function createPayment(data: {
 // ---------------------------------------------------------------------------
 
 /**
- * Every user with a summary of their ledger. Only admins can read other users'
- * profiles and ledgers (Row Level Security), so call this for admins only.
+ * Every user with a summary of their ledger (customer side). Only admins can read
+ * other users' profiles and ledgers (Row Level Security), so call this for admins only.
  */
 export async function getUserList(): Promise<UserListItem[]> {
   const db = await createServerSupabaseClient();
@@ -666,7 +788,12 @@ export async function getUserList(): Promise<UserListItem[]> {
   const [profiles, summaries] = await Promise.all([
     fetchAll((from, to) => db.from('profiles').select('*').order('created_at').order('id').range(from, to)),
     fetchAll((from, to) =>
-      db.from('customer_summary').select('owner_id, outstanding, overdue').order('customer_id').range(from, to)
+      db
+        .from('customer_summary')
+        .select('owner_id, outstanding, overdue')
+        .eq('kind', 'customer')
+        .order('customer_id')
+        .range(from, to)
     ),
   ]);
 

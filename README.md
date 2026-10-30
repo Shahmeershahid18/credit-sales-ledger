@@ -1,6 +1,7 @@
 # Credit Sale Ledger
 
-App to track material given on credit, payments received and overdue amounts customer-wise.
+App to track material sold and bought on credit: what customers owe you, what you owe vendors,
+payments received and made, and overdue amounts on both sides.
 Each user has their own private ledger; admins manage users and can open any ledger.
 Built with Next.js (App Router), Supabase (Postgres + Auth) and Tailwind CSS. See
 `credit-sale-monitoring-plan.md` for the full plan.
@@ -29,11 +30,25 @@ login, and anything you add is lost when the server restarts. A banner in the ap
       payments linked to a sale)
    4. `supabase/migrations/20261026030000_users_and_separate_ledgers.sql` (user roles and a separate
       ledger per user)
-   5. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+   5. `supabase/migrations/20261031000000_vendors.sql` (vendors, purchases and bills to pay)
+   6. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
    The service role key is a secret used only on the server; never commit it.
 6. Restart `npm run dev` and sign in at `/login`.
+
+## Customers and vendors
+
+- **Customers** are people you sell to on credit: sales, payments received, **Overdue**.
+- **Vendors** are suppliers you buy from on credit: purchases, payments made, **Bills to pay**.
+- Both use the same rules: credit terms and due dates, payments applied to the oldest unpaid bill
+  first (or to the one you pick), and 1–30 / 31–60 / 61–90 / 90+ day aging.
+- The dashboard shows both sides: to receive, to pay, net position and what falls due in the next 7 days.
+  The monthly report has a Sales and a Purchases tab.
+- A contact is either a customer or a vendor, and that cannot be changed later. In the database both
+  live in `customers` with a `kind` column; for a vendor, `credit_sales` rows are purchases and
+  `payments` rows are payments made.
+- Saved materials are shared by both forms and keep a sale rate and a purchase rate.
 
 ## Users and roles
 
@@ -53,8 +68,10 @@ the same zone.
 ## Project layout
 
 - `app/page.tsx` – public landing page at `/` (signed-in users are sent to `/dashboard`)
-- `app/(app)/` – signed-in pages: dashboard (`/dashboard`), customers, ledger, overdue, monthly report,
-  account (`/account`) and users (`/users`, admins only)
+- `app/(app)/` – signed-in pages: dashboard (`/dashboard`), customers, vendors, ledgers, overdue,
+  bills to pay, monthly report, account (`/account`) and users (`/users`, admins only)
+- `components/views/` – page bodies shared by the customer and vendor routes
+- `lib/contacts.ts` – customer and vendor wording and links
 - `app/actions/` – Server Actions (customers, sales, payments, materials, auth, account, users)
 - `lib/auth.ts` – signed-in user, role and which ledger is open
 - `lib/users.ts` – adding and managing users through the Supabase Auth admin API

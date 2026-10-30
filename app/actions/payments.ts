@@ -1,14 +1,19 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { PaymentSchema, firstIssue } from '@/lib/validators';
+import { ContactKindSchema, PaymentSchema, firstIssue } from '@/lib/validators';
 import { createPayment, getCustomerSaleOptions } from '@/lib/queries';
 import { requireUser } from '@/lib/auth';
 import { SaleOption } from '@/lib/types';
 
+/**
+ * Records a payment received, or a payment made when the form's `kind` is "vendor"
+ */
 export async function addPaymentAction(formData: FormData) {
   try {
     await requireUser();
+    const kind = ContactKindSchema.safeParse(formData.get('kind') ?? 'customer');
+    if (!kind.success) return { success: false, error: 'Invalid contact type' };
     const parsed = PaymentSchema.safeParse({
       customer_id: formData.get('customer_id') ?? '',
       payment_date: formData.get('payment_date') ?? '',
@@ -19,13 +24,9 @@ export async function addPaymentAction(formData: FormData) {
     });
     if (!parsed.success) return { success: false, error: firstIssue(parsed.error) };
 
-    const newPayment = await createPayment(parsed.data);
+    const newPayment = await createPayment(kind.data, parsed.data);
 
-    revalidatePath('/dashboard');
-    revalidatePath('/customers');
-    revalidatePath(`/customers/${parsed.data.customer_id}`);
-    revalidatePath('/overdue');
-    revalidatePath('/reports/monthly');
+    revalidatePath('/', 'layout');
 
     return { success: true, payment: newPayment };
   } catch (err: unknown) {

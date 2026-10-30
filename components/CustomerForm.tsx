@@ -4,16 +4,19 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { addCustomerAction, updateCustomerAction } from '@/app/actions/customers';
 import { Customer } from '@/lib/types';
+import { ContactKind, SIDES } from '@/lib/contacts';
 import { Field, FormError, inputClass } from './ui';
 import { FormFooter } from './SaleForm';
 
 interface CustomerFormProps {
-  customer?: Customer; // when set, the form edits this customer
+  kind: ContactKind;
+  customer?: Customer; // when set, the form edits this customer or vendor
   cancelHref: string;
 }
 
-export function CustomerForm({ customer, cancelHref }: CustomerFormProps) {
+export function CustomerForm({ kind, customer, cancelHref }: CustomerFormProps) {
   const router = useRouter();
+  const terms = SIDES[customer?.kind ?? kind];
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -27,11 +30,12 @@ export function CustomerForm({ customer, cancelHref }: CustomerFormProps) {
     setErrorMsg(null);
 
     if (name.trim().length < 2) {
-      return setErrorMsg('Customer name must be at least 2 characters.');
+      return setErrorMsg(`${terms.One} name must be at least 2 characters.`);
     }
 
     setIsSubmitting(true);
     const formData = new FormData();
+    formData.append('kind', terms.kind);
     formData.append('name', name);
     formData.append('phone', phone);
     formData.append('address', address);
@@ -41,11 +45,11 @@ export function CustomerForm({ customer, cancelHref }: CustomerFormProps) {
       : await addCustomerAction(formData);
 
     if (result.success && result.customer) {
-      router.push(`/customers/${result.customer.id}`);
+      router.push(`${terms.base}/${result.customer.id}`);
       router.refresh();
     } else {
       setIsSubmitting(false);
-      setErrorMsg(result.error || (isEdit ? 'Failed to update customer.' : 'Failed to add customer.'));
+      setErrorMsg(result.error || (isEdit ? 'Failed to save changes.' : `Failed to add ${terms.one}.`));
     }
   };
 
@@ -53,12 +57,12 @@ export function CustomerForm({ customer, cancelHref }: CustomerFormProps) {
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
       <FormError message={errorMsg} />
 
-      <Field label="Customer or business name" htmlFor="name">
+      <Field label={terms.nameLabel} htmlFor="name">
         <input
           id="name"
           type="text"
           autoComplete="organization"
-          placeholder="e.g. Ali Traders"
+          placeholder={terms.namePlaceholder}
           value={name}
           onChange={(e) => setName(e.target.value)}
           className={inputClass}
@@ -92,7 +96,7 @@ export function CustomerForm({ customer, cancelHref }: CustomerFormProps) {
         </Field>
       </div>
 
-      <FormFooter cancelHref={cancelHref} isSubmitting={isSubmitting} label={isEdit ? 'Save changes' : 'Add customer'} />
+      <FormFooter cancelHref={cancelHref} isSubmitting={isSubmitting} label={isEdit ? 'Save changes' : `Add ${terms.one}`} />
     </form>
   );
 }

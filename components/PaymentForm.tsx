@@ -5,13 +5,15 @@ import { useRouter } from 'next/navigation';
 import { formatDate, formatRs, getTodayDateStr } from '@/lib/format';
 import { addPaymentAction, getCustomerSalesAction } from '@/app/actions/payments';
 import { PaymentMethod, SaleOption } from '@/lib/types';
+import { ContactKind, SIDES } from '@/lib/contacts';
 import { Field, FormError, Segmented, inputClass } from './ui';
-import { FormFooter, NoCustomersYet } from './SaleForm';
+import { FormFooter, NoContactsYet } from './SaleForm';
 import { Select, SelectOption } from './Select';
 
 export type PaymentCustomerOption = { id: string; name: string; outstanding: number; overdue: number };
 
 interface PaymentFormProps {
+  kind: ContactKind; // customer: payment received; vendor: payment made
   customers: PaymentCustomerOption[];
   preselectedCustomerId?: string;
   initialSales?: SaleOption[]; // sales of the preselected customer
@@ -29,14 +31,14 @@ function saleOption(s: SaleOption): SelectOption {
   };
 }
 
-const NOT_LINKED: SelectOption = {
-  value: '',
-  label: 'Not linked to a sale',
-  description: 'Applied to the oldest unpaid sales first',
-};
-
-export function PaymentForm({ customers, preselectedCustomerId, initialSales, cancelHref }: PaymentFormProps) {
+export function PaymentForm({ kind, customers, preselectedCustomerId, initialSales, cancelHref }: PaymentFormProps) {
   const router = useRouter();
+  const terms = SIDES[kind];
+  const notLinked: SelectOption = {
+    value: '',
+    label: `Not linked to a ${terms.entry}`,
+    description: `Applied to the oldest unpaid ${terms.entry}s first`,
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -81,18 +83,19 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
   };
 
   if (customers.length === 0) {
-    return <NoCustomersYet />;
+    return <NoContactsYet kind={kind} />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!customerId) return setErrorMsg('Please select a customer.');
+    if (!customerId) return setErrorMsg(`Please select a ${terms.one}.`);
     if (parsedAmount <= 0) return setErrorMsg('Payment amount must be greater than 0.');
 
     setIsSubmitting(true);
     const formData = new FormData();
+    formData.append('kind', kind);
     formData.append('customer_id', customerId);
     formData.append('payment_date', paymentDate);
     formData.append('amount', String(parsedAmount));
@@ -103,7 +106,7 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
     const result = await addPaymentAction(formData);
 
     if (result.success) {
-      router.push(`/customers/${customerId}`);
+      router.push(`${terms.base}/${customerId}`);
       router.refresh();
     } else {
       setIsSubmitting(false);
@@ -117,13 +120,13 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {!preselectedCustomerId && (
-          <Field label="Customer" htmlFor="customer" className="sm:col-span-2">
+          <Field label={terms.One} htmlFor="customer" className="sm:col-span-2">
             <Select
               id="customer"
               value={customerId}
               onChange={handleCustomerChange}
-              placeholder="Select customer…"
-              searchPlaceholder="Search customers…"
+              placeholder={`Select ${terms.one}…`}
+              searchPlaceholder={`Search ${terms.many}…`}
               options={customers.map((c) => ({
                 value: c.id,
                 label: c.name,
@@ -147,7 +150,7 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
       {selected && (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-sm">
           <span className="text-zinc-600">
-            Outstanding <span className="font-semibold text-zinc-900 tabular-nums whitespace-nowrap">{formatRs(selected.outstanding)}</span>
+            {terms.balanceLabel} <span className="font-semibold text-zinc-900 tabular-nums whitespace-nowrap">{formatRs(selected.outstanding)}</span>
             {selected.overdue > 0 && (
               <>
                 {' · '}Overdue <span className="font-semibold text-rose-700 tabular-nums whitespace-nowrap">{formatRs(selected.overdue)}</span>
@@ -163,7 +166,7 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
               }}
               className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
             >
-              Pay full balance
+              {terms.payFull}
             </button>
           )}
         </div>
@@ -171,10 +174,10 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
 
       {customerId && (
         <Field
-          label="For sale"
+          label={`For ${terms.entry}`}
           htmlFor="sale"
           optional
-          hint={loadingSales ? 'Loading sales…' : customerSales?.length === 0 ? 'No credit sales yet' : undefined}
+          hint={loadingSales ? `Loading ${terms.entry}s…` : customerSales?.length === 0 ? `No ${terms.entry}s yet` : undefined}
         >
           <Select
             id="sale"
@@ -182,13 +185,13 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
             onChange={handleSaleChange}
             disabled={loadingSales || !customerSales?.length}
             searchPlaceholder="Search material or date…"
-            options={[NOT_LINKED, ...(customerSales ?? []).map(saleOption)]}
+            options={[notLinked, ...(customerSales ?? []).map(saleOption)]}
           />
         </Field>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Amount received" htmlFor="amount">
+        <Field label={terms.amountLabel} htmlFor="amount">
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">Rs.</span>
             <input
@@ -223,7 +226,7 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
         <input
           id="notes"
           type="text"
-          placeholder={method === 'cheque' ? 'Cheque number and bank' : method === 'bank' ? 'Transaction ID' : 'Received by, receipt no.'}
+          placeholder={method === 'cheque' ? 'Cheque number and bank' : method === 'bank' ? 'Transaction ID' : kind === 'vendor' ? 'Paid by, receipt no.' : 'Received by, receipt no.'}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           className={inputClass}
@@ -232,8 +235,8 @@ export function PaymentForm({ customers, preselectedCustomerId, initialSales, ca
 
       <p className="text-xs text-zinc-500">
         {selectedSale
-          ? `Applied to the ${selectedSale.material} sale of ${formatDate(selectedSale.sale_date)} first; any extra goes to the oldest unpaid sales.`
-          : 'Applied to the oldest unpaid sales first.'}
+          ? `Applied to the ${selectedSale.material} ${terms.entry} of ${formatDate(selectedSale.sale_date)} first; any extra goes to the oldest unpaid ${terms.entry}s.`
+          : `Applied to the oldest unpaid ${terms.entry}s first.`}
       </p>
 
       <FormFooter

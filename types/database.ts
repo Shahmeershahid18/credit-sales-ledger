@@ -40,6 +40,7 @@ export type Database = {
         Row: {
           id: string;
           owner_id: string;
+          kind: string;
           name: string;
           phone: string | null;
           address: string | null;
@@ -48,6 +49,7 @@ export type Database = {
         Insert: {
           id?: string;
           owner_id?: string;
+          kind?: string;
           name: string;
           phone?: string | null;
           address?: string | null;
@@ -56,6 +58,7 @@ export type Database = {
         Update: {
           id?: string;
           owner_id?: string;
+          kind?: string;
           name?: string;
           phone?: string | null;
           address?: string | null;
@@ -166,6 +169,7 @@ export type Database = {
           name: string;
           unit: string;
           rate: number | null;
+          purchase_rate: number | null;
           created_at: string;
         };
         Insert: {
@@ -174,6 +178,7 @@ export type Database = {
           name: string;
           unit?: string;
           rate?: number | null;
+          purchase_rate?: number | null;
           created_at?: string;
         };
         Update: {
@@ -182,6 +187,7 @@ export type Database = {
           name?: string;
           unit?: string;
           rate?: number | null;
+          purchase_rate?: number | null;
           created_at?: string;
         };
         Relationships: [];
@@ -206,6 +212,7 @@ export type Database = {
           outstanding: number | null;
           days_overdue: number | null;
           owner_id: string | null;
+          kind: string | null;
         };
         Relationships: [];
       };
@@ -223,6 +230,7 @@ export type Database = {
           next_due_date: string | null;
           status: string | null;
           owner_id: string | null;
+          kind: string | null;
         };
         Relationships: [];
       };
@@ -237,6 +245,7 @@ export type Database = {
           d61_90: number | null;
           d90_plus: number | null;
           owner_id: string | null;
+          kind: string | null;
         };
         Relationships: [];
       };
@@ -255,7 +264,7 @@ export type Database = {
         Returns: string;
       };
       monthly_report: {
-        Args: { p_month: string; p_owner: string };
+        Args: { p_month: string; p_owner: string; p_kind?: string };
         Returns: {
           material_sold: number;
           payment_received: number;

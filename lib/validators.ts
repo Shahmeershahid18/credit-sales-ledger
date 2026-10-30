@@ -35,13 +35,20 @@ export const PaymentSchema = z.object({
   notes: optionalText,
 });
 
+function optionalRate(message: string) {
+  return z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? null : v),
+    z.coerce.number().min(0, message).nullable()
+  );
+}
+
+export const ContactKindSchema = z.enum(['customer', 'vendor']);
+
 export const MaterialSchema = z.object({
   name: z.string().trim().min(1, 'Material name is required').max(80, 'Material name is too long'),
   unit: z.string().trim().min(1, 'Unit is required').max(20),
-  rate: z.preprocess(
-    (v) => (v === '' || v === null || v === undefined ? null : v),
-    z.coerce.number().min(0, 'Rate cannot be negative').nullable()
-  ),
+  rate: optionalRate('Sale rate cannot be negative'),
+  purchase_rate: optionalRate('Purchase rate cannot be negative'),
 });
 
 /**

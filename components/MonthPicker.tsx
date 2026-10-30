@@ -7,6 +7,7 @@ import { formatMonth, getCurrentMonthStr } from '@/lib/format';
 
 interface MonthPickerProps {
   currentMonth: string; // YYYY-MM
+  query?: string; // other report parameters to keep, e.g. "side=vendor"
 }
 
 function shiftMonth(month: string, delta: number): string {
@@ -15,10 +16,10 @@ function shiftMonth(month: string, delta: number): string {
   return d.toISOString().slice(0, 7);
 }
 
-export function MonthPicker({ currentMonth }: MonthPickerProps) {
+export function MonthPicker({ currentMonth, query }: MonthPickerProps) {
   const router = useRouter();
   const thisMonth = getCurrentMonthStr();
-  const go = (month: string) => router.push(`/reports/monthly?month=${month}`);
+  const go = (month: string) => router.push(`/reports/monthly?${query ? `${query}&` : ''}month=${month}`);
 
   return (
     <div className="flex items-center gap-2">

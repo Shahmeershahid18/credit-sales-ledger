@@ -1,5 +1,13 @@
+import type { ContactKind } from './contacts';
+
+/**
+ * A contact: a customer (you sell to them on credit) or a vendor (you buy from them
+ * on credit). For a vendor, CreditSale rows are purchases and Payment rows are
+ * payments you made.
+ */
 export type Customer = {
   id: string;
+  kind: ContactKind;
   name: string;
   phone?: string | null;
   address?: string | null;
@@ -35,13 +43,14 @@ export type Payment = {
 };
 
 /**
- * A saved material shown as a quick-pick pill on the sale form
+ * A saved material shown as a quick-pick pill on the sale and purchase forms
  */
 export type Material = {
   id: string;
   name: string;
   unit: string;
-  rate: number | null;
+  rate: number | null; // sale rate
+  purchase_rate: number | null;
   created_at: string;
 };
 
@@ -159,6 +168,7 @@ export type DashboardStats = {
   customerCount: number;
   customersWithBalance: number;
   customersOverdue: number;
+  dueThisWeek: number; // unpaid amounts falling due in the next 7 days
   currentMonth: {
     name: string;
     sold: number;
@@ -174,6 +184,9 @@ export type DashboardStats = {
     status: CustomerStatus;
   }[];
 };
+
+/** Both sides of the dashboard: what you will receive and what you have to pay */
+export type DashboardData = Record<ContactKind, DashboardStats>;
 
 export type MonthlyBreakdownRow = {
   customerId: string;

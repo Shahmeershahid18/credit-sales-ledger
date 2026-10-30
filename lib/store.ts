@@ -17,7 +17,7 @@ import {
   MonthlyReport,
 } from './types';
 import { createSampleData } from './sample-data';
-import { daysBetween, formatDate, formatMonth, getTodayDateStr } from './format';
+import { addDays, daysBetween, formatDate, formatMonth, getTodayDateStr } from './format';
 
 // ---------------------------------------------------------------------------
 // Demo store (used only when Supabase is not configured).
@@ -364,11 +364,23 @@ export function summarizeAging(agingRows: AgingRow[]): AgingSummary {
   };
 }
 
+/**
+ * Unpaid amount of entries falling due from today up to `days` days ahead
+ */
+export function calculateDueSoon(saleBalances: SaleBalance[], today: string = getTodayDateStr(), days = 7): number {
+  const until = addDays(today, days);
+  return sum(
+    saleBalances.filter((s) => s.outstanding > 0 && s.due_date >= today && s.due_date <= until),
+    (s) => s.outstanding
+  );
+}
+
 export function buildDashboardStats(
   summaries: CustomerSummary[],
   agingRows: AgingRow[],
   currentMonth: string,
-  monthTotals: MonthTotals
+  monthTotals: MonthTotals,
+  dueThisWeek: number
 ): DashboardStats {
   const topCustomers = summaries
     .filter((c) => c.outstanding > 0)
@@ -391,6 +403,7 @@ export function buildDashboardStats(
     customerCount: summaries.length,
     customersWithBalance: summaries.filter((c) => c.outstanding > 0).length,
     customersOverdue: summaries.filter((c) => c.overdue > 0).length,
+    dueThisWeek,
     currentMonth: {
       name: formatMonth(currentMonth),
       sold: monthTotals.materialSold,

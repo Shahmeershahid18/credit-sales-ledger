@@ -7,6 +7,7 @@ import { formatRs, getTodayDateStr, calculateDueDate, formatDate } from '@/lib/f
 import { addSaleAction } from '@/app/actions/sales';
 import { Check, Loader2, UserPlus, Plus } from 'lucide-react';
 import { Material } from '@/lib/types';
+import { ContactKind, SIDES } from '@/lib/contacts';
 import { Field, FormError, Segmented, buttonClass, inputClass } from './ui';
 import { MaterialPills } from './MaterialPills';
 import { Select } from './Select';
@@ -14,6 +15,7 @@ import { Select } from './Select';
 export type CustomerOption = { id: string; name: string; phone?: string | null };
 
 interface SaleFormProps {
+  kind: ContactKind; // customer: credit sale; vendor: credit purchase
   customers: CustomerOption[];
   materials: Material[];
   materialsAvailable: boolean;
@@ -24,8 +26,10 @@ interface SaleFormProps {
 const BASE_UNITS = ['bag', 'ton', 'kg', 'truck', 'pcs', 'ft', 'sqft', 'litre', 'can'];
 type Term = 30 | 60 | 90 | 'custom';
 
-export function SaleForm({ customers, materials, materialsAvailable, preselectedCustomerId, cancelHref }: SaleFormProps) {
+export function SaleForm({ kind, customers, materials, materialsAvailable, preselectedCustomerId, cancelHref }: SaleFormProps) {
   const router = useRouter();
+  const terms = SIDES[kind];
+  const rateOf = (m: Material) => (kind === 'vendor' ? m.purchase_rate : m.rate);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -49,7 +53,7 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
   const units = BASE_UNITS.includes(unit) ? BASE_UNITS : [...BASE_UNITS, unit];
 
   if (customers.length === 0) {
-    return <NoCustomersYet />;
+    return <NoContactsYet kind={kind} />;
   }
 
   const isNewMaterial =
@@ -60,7 +64,8 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
   const pickMaterial = (m: Material) => {
     setMaterial(m.name);
     setUnit(m.unit);
-    if (m.rate !== null) setRate(String(m.rate));
+    const savedRate = rateOf(m);
+    if (savedRate !== null) setRate(String(savedRate));
   };
 
   const handleMaterialChange = (value: string) => {
@@ -69,7 +74,8 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
     const match = materialList.find((m) => m.name.toLowerCase() === value.trim().toLowerCase());
     if (match) {
       setUnit(match.unit);
-      if (!rate && match.rate !== null) setRate(String(match.rate));
+      const savedRate = rateOf(match);
+      if (!rate && savedRate !== null) setRate(String(savedRate));
     }
   };
 
@@ -77,7 +83,7 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!customerId) return setErrorMsg('Please select a customer.');
+    if (!customerId) return setErrorMsg(`Please select a ${terms.one}.`);
     if (!material.trim()) return setErrorMsg('Please enter the material.');
     if (parsedQty <= 0) return setErrorMsg('Quantity must be greater than 0.');
     if (parsedRate <= 0) return setErrorMsg('Rate must be greater than 0.');
@@ -87,6 +93,7 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
 
     setIsSubmitting(true);
     const formData = new FormData();
+    formData.append('kind', kind);
     formData.append('customer_id', customerId);
     formData.append('sale_date', saleDate);
     formData.append('material', material);
@@ -99,11 +106,11 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
     const result = await addSaleAction(formData);
 
     if (result.success) {
-      router.push(`/customers/${customerId}`);
+      router.push(`${terms.base}/${customerId}`);
       router.refresh();
     } else {
       setIsSubmitting(false);
-      setErrorMsg(result.error || 'Failed to save sale.');
+      setErrorMsg(result.error || `Failed to save ${terms.entry}.`);
     }
   };
 
@@ -113,19 +120,19 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {!preselectedCustomerId && (
-          <Field label="Customer" htmlFor="customer" className="col-span-2 sm:col-span-3">
+          <Field label={terms.One} htmlFor="customer" className="col-span-2 sm:col-span-3">
             <Select
               id="customer"
               value={customerId}
               onChange={setCustomerId}
-              placeholder="Select customer…"
-              searchPlaceholder="Search customers…"
+              placeholder={`Select ${terms.one}…`}
+              searchPlaceholder={`Search ${terms.many}…`}
               options={customers.map((c) => ({ value: c.id, label: c.name, description: c.phone ?? undefined }))}
             />
           </Field>
         )}
         <Field
-          label="Sale date"
+          label={terms.entryDate}
           htmlFor="sale_date"
           className={preselectedCustomerId ? 'col-span-2 sm:col-span-4 sm:max-w-[13rem]' : 'col-span-2 sm:col-span-1'}
         >
@@ -141,6 +148,7 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
             selectedName={material}
             filterText={material}
             onPick={pickMaterial}
+            side={kind}
           />
           <input
             id="material"
@@ -230,7 +238,7 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
           <input
             id="notes"
             type="text"
-            placeholder="Site, vehicle or bill reference"
+            placeholder={terms.notesPlaceholder}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className={inputClass}
@@ -244,7 +252,7 @@ export function SaleForm({ customers, materials, materialsAvailable, preselected
         </button>
       )}
 
-      <FormFooter cancelHref={cancelHref} isSubmitting={isSubmitting} label={`Save sale · ${formatRs(amount)}`} />
+      <FormFooter cancelHref={cancelHref} isSubmitting={isSubmitting} label={`Save ${terms.entry} · ${formatRs(amount)}`} />
     </form>
   );
 }
@@ -273,14 +281,17 @@ export function FormFooter({
   );
 }
 
-export function NoCustomersYet() {
+export function NoContactsYet({ kind }: { kind: ContactKind }) {
+  const terms = SIDES[kind];
   return (
     <div className="text-center py-8">
-      <p className="text-sm font-medium text-zinc-900">No customers yet</p>
-      <p className="text-sm text-zinc-500 mt-1">Add a customer first, then record sales and payments.</p>
-      <Link href="/customers/new" className={buttonClass('primary', 'mt-4')}>
+      <p className="text-sm font-medium text-zinc-900">No {terms.many} yet</p>
+      <p className="text-sm text-zinc-500 mt-1">
+        Add a {terms.one} first, then record {terms.entry}s and payments.
+      </p>
+      <Link href={`${terms.base}/new`} className={buttonClass('primary', 'mt-4')}>
         <UserPlus className="w-4 h-4" />
-        Add customer
+        Add {terms.one}
       </Link>
     </div>
   );

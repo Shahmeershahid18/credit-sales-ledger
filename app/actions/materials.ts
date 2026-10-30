@@ -10,7 +10,9 @@ type MaterialResult = { success: true; material: Material } | { success: false; 
 
 function revalidateSaleForms() {
   revalidatePath('/sales/new');
+  revalidatePath('/purchases/new');
   revalidatePath('/customers/[id]/sale/new', 'page');
+  revalidatePath('/vendors/[id]/purchase/new', 'page');
 }
 
 function errorMessage(err: unknown, fallback: string) {
@@ -19,7 +21,7 @@ function errorMessage(err: unknown, fallback: string) {
 
 export async function saveMaterialAction(
   id: string | null,
-  input: { name: string; unit: string; rate: string | number | null }
+  input: { name: string; unit: string; rate: string | number | null; purchase_rate: string | number | null }
 ): Promise<MaterialResult> {
   try {
     await requireUser();

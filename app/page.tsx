@@ -18,14 +18,14 @@ import { buttonClass } from '@/components/ui';
 export const metadata: Metadata = {
   title: { absolute: 'Credit Ledger · Credit sales, payments and overdue tracking' },
   description:
-    'Record material given on credit, payments received and due dates. See outstanding and overdue balances customer-wise, automatically.',
+    'Record material sold and bought on credit, payments received and made, and due dates. See what customers owe you and what you owe vendors, automatically.',
 };
 
 const FEATURES = [
   {
     icon: Users,
-    title: 'A ledger for every customer',
-    text: 'Every sale and payment in date order with a running balance, due dates and a clear Paid, Pending or Overdue status.',
+    title: 'Customers and vendors',
+    text: 'What customers owe you and what you owe suppliers, each in a date-wise ledger with a running balance and a clear Paid, Pending or Overdue status.',
   },
   {
     icon: CalendarClock,
@@ -35,12 +35,12 @@ const FEATURES = [
   {
     icon: ArrowDownLeft,
     title: 'Payments that settle themselves',
-    text: 'Payments clear the oldest unpaid sale first, or the exact sale you choose. Advances are tracked separately.',
+    text: 'Payments clear the oldest unpaid bill first, or the exact one you choose, on both sides. Advances are tracked separately.',
   },
   {
     icon: FileBarChart,
     title: 'Monthly report',
-    text: 'Material sold, payments received and amounts falling due for any month, customer-wise, with CSV export.',
+    text: 'Sold, purchased, received and paid for any month, with amounts falling due and CSV export.',
   },
   {
     icon: MessageCircle,
@@ -50,14 +50,14 @@ const FEATURES = [
   {
     icon: UserCog,
     title: 'A private ledger for each user',
-    text: 'Everyone signs in to their own ledger and sees only their own customers, sales and payments.',
+    text: 'Everyone signs in to their own ledger and sees only their own customers, vendors and payments.',
   },
 ];
 
 const STEPS = [
-  { title: 'Add your customers', text: 'Name, phone and address. That is all it takes.' },
-  { title: 'Record credit sales', text: 'Material, quantity, rate and credit term. The amount and due date are calculated.' },
-  { title: 'Record payments', text: 'Cash, bank or cheque. Balances, overdue and reports update instantly.' },
+  { title: 'Add customers and vendors', text: 'Name, phone and address. That is all it takes.' },
+  { title: 'Record sales and purchases', text: 'Material, quantity, rate and credit term. The amount and due date are calculated.' },
+  { title: 'Record payments', text: 'Received or paid, by cash, bank or cheque. Balances, bills and reports update instantly.' },
 ];
 
 export default function LandingPage() {

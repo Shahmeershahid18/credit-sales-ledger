@@ -1,25 +1,28 @@
 import React from 'react';
 import Link from 'next/link';
 import { DashboardStats } from '@/lib/types';
+import { ContactKind, SIDES } from '@/lib/contacts';
 import { formatRs } from '@/lib/format';
 import { StatusBadge } from './StatusBadge';
 import { ArrowRight } from 'lucide-react';
 
 interface TopCustomersChartProps {
+  kind: ContactKind;
   customers: DashboardStats['topCustomers'];
 }
 
-export function TopCustomersChart({ customers }: TopCustomersChartProps) {
+export function TopCustomersChart({ kind, customers }: TopCustomersChartProps) {
+  const terms = SIDES[kind];
   const maxOutstanding = Math.max(...customers.map((c) => c.outstanding), 1);
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 shadow-xs p-4 sm:p-5 flex flex-col">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-900">Top outstanding customers</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">{terms.topTitle}</h2>
           <p className="text-xs text-zinc-500 mt-0.5">Highest unpaid balances</p>
         </div>
-        <Link href="/customers" className="text-xs font-medium text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
+        <Link href={terms.base} className="text-xs font-medium text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
           View all
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
@@ -27,7 +30,7 @@ export function TopCustomersChart({ customers }: TopCustomersChartProps) {
 
       {customers.length === 0 ? (
         <div className="flex-1 min-h-56 flex items-center justify-center text-sm text-zinc-400">
-          No outstanding balances
+          Nothing unpaid
         </div>
       ) : (
         <ul className="space-y-4">
@@ -36,7 +39,7 @@ export function TopCustomersChart({ customers }: TopCustomersChartProps) {
             return (
               <li key={c.id}>
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <Link href={`/customers/${c.id}`} className="font-medium text-zinc-900 hover:text-emerald-700 truncate">
+                  <Link href={`${terms.base}/${c.id}`} className="font-medium text-zinc-900 hover:text-emerald-700 truncate">
                     {c.name}
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">

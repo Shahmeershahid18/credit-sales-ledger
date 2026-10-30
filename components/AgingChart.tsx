@@ -8,6 +8,8 @@ import { Segmented } from './ui';
 
 interface AgingChartProps {
   data: AgingSummary;
+  title?: string;
+  totalLabel?: string;
 }
 
 // Severity scale: not yet due → most overdue
@@ -26,7 +28,7 @@ const tooltipStyle = {
   fontSize: '12px',
 };
 
-export function AgingChart({ data }: AgingChartProps) {
+export function AgingChart({ data, title = 'Outstanding by age', totalLabel = 'Outstanding' }: AgingChartProps) {
   const [chartType, setChartType] = useState<'donut' | 'bar'>('donut');
 
   const chartData = SERIES.map((s) => ({ name: s.name, value: data[s.key], color: s.color }));
@@ -36,7 +38,7 @@ export function AgingChart({ data }: AgingChartProps) {
     <div className="bg-white rounded-xl border border-zinc-200 shadow-xs p-4 sm:p-5 flex flex-col">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-900">Outstanding by age</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">{title}</h2>
           <p className="text-xs text-zinc-500 mt-0.5 tabular-nums">Total {formatRs(total)}</p>
         </div>
         {total > 0 && (
@@ -55,7 +57,7 @@ export function AgingChart({ data }: AgingChartProps) {
       </div>
 
       {total === 0 ? (
-        <div className="h-56 flex items-center justify-center text-sm text-zinc-400">No outstanding balances</div>
+        <div className="h-56 flex items-center justify-center text-sm text-zinc-400">Nothing unpaid</div>
       ) : chartType === 'donut' ? (
         <div className="h-56 w-full relative">
           <ResponsiveContainer width="100%" height="100%">
@@ -69,7 +71,7 @@ export function AgingChart({ data }: AgingChartProps) {
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-xs text-zinc-500">Outstanding</span>
+            <span className="text-xs text-zinc-500">{totalLabel}</span>
             <span className="text-sm font-semibold text-zinc-900 tabular-nums">{formatRs(total)}</span>
           </div>
         </div>

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { LedgerRow } from '@/lib/types';
+import { ContactKind, SIDES } from '@/lib/contacts';
 import { formatRs, formatDate } from '@/lib/format';
 import { StatusBadge } from './StatusBadge';
 import { EmptyState, Segmented, buttonClass } from './ui';
@@ -11,6 +12,7 @@ import { Search, FileSpreadsheet, ArrowDownUp, Plus } from 'lucide-react';
 interface LedgerTableProps {
   rows: LedgerRow[]; // chronological order, as computed with the running balance
   customerId: string;
+  kind: ContactKind;
 }
 
 type TypeFilter = 'all' | 'sale' | 'payment';
@@ -19,7 +21,8 @@ function describe(row: LedgerRow) {
   return row.type === 'sale' ? row.material : `${row.method ? row.method[0].toUpperCase() + row.method.slice(1) : 'Cash'} payment`;
 }
 
-export function LedgerTable({ rows, customerId }: LedgerTableProps) {
+export function LedgerTable({ rows, customerId, kind }: LedgerTableProps) {
+  const terms = SIDES[kind];
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<TypeFilter>('all');
   const [newestFirst, setNewestFirst] = useState(true);
@@ -40,11 +43,11 @@ export function LedgerTable({ rows, customerId }: LedgerTableProps) {
         <EmptyState
           icon={<FileSpreadsheet className="w-5 h-5" />}
           title="No transactions yet"
-          description="Sales and payments for this customer will appear here with a running balance."
+          description={`${terms.Entries} and payments for this ${terms.one} will appear here with a running balance.`}
           action={
-            <Link href={`/customers/${customerId}/sale/new`} className={buttonClass('primary')}>
+            <Link href={`${terms.base}/${customerId}/${terms.entrySegment}/new`} className={buttonClass('primary')}>
               <Plus className="w-4 h-4" />
-              Add first sale
+              Add first {terms.entry}
             </Link>
           }
         />
@@ -75,7 +78,7 @@ export function LedgerTable({ rows, customerId }: LedgerTableProps) {
               onChange={setFilterType}
               options={[
                 { label: 'All', value: 'all' },
-                { label: 'Sales', value: 'sale' },
+                { label: terms.Entries, value: 'sale' },
                 { label: 'Payments', value: 'payment' },
               ]}
             />
@@ -139,8 +142,8 @@ export function LedgerTable({ rows, customerId }: LedgerTableProps) {
                   <th className="py-2.5 px-4">Description</th>
                   <th className="py-2.5 px-3 text-right">Qty</th>
                   <th className="py-2.5 px-3 text-right">Rate</th>
-                  <th className="py-2.5 px-4 text-right">Sale</th>
-                  <th className="py-2.5 px-4 text-right">Payment</th>
+                  <th className="py-2.5 px-4 text-right">{terms.Entry}</th>
+                  <th className="py-2.5 px-4 text-right">{terms.paidShort}</th>
                   <th className="py-2.5 px-4 text-right">Balance</th>
                   <th className="py-2.5 px-3 text-center">Credit days</th>
                   <th className="py-2.5 px-4">Due date</th>

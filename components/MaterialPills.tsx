@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Check, Loader2, Pencil, Plus, X } from 'lucide-react';
 import { Material } from '@/lib/types';
+import { ContactKind } from '@/lib/contacts';
 import { formatRs } from '@/lib/format';
 import { deleteMaterialAction, saveMaterialAction } from '@/app/actions/materials';
 import { inputClass } from './ui';
@@ -16,9 +17,13 @@ interface MaterialPillsProps {
   selectedName: string;
   filterText: string;
   onPick: (material: Material) => void;
+  side: ContactKind; // which rate the pills show: sale (customer) or purchase (vendor)
 }
 
-type Draft = { id: string | null; name: string; unit: string; rate: string };
+type Draft = { id: string | null; name: string; unit: string; rate: string; purchase_rate: string };
+
+const rateText = (v: number | null) => (v === null ? '' : String(v));
+const miniLabel = 'text-[11px] font-medium text-zinc-500';
 
 const COLLAPSED_COUNT = 12;
 const pillBase = 'h-7 rounded-full border text-xs font-medium inline-flex items-center transition-colors';
@@ -31,6 +36,7 @@ export function MaterialPills({
   selectedName,
   filterText,
   onPick,
+  side,
 }: MaterialPillsProps) {
   const [managing, setManaging] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -56,8 +62,8 @@ export function MaterialPills({
     setError(null);
     setDraft(
       m
-        ? { id: m.id, name: m.name, unit: m.unit, rate: m.rate === null ? '' : String(m.rate) }
-        : { id: null, name: query && !exactMatch ? filterText.trim() : '', unit: units[0], rate: '' }
+        ? { id: m.id, name: m.name, unit: m.unit, rate: rateText(m.rate), purchase_rate: rateText(m.purchase_rate) }
+        : { id: null, name: query && !exactMatch ? filterText.trim() : '', unit: units[0], rate: '', purchase_rate: '' }
     );
   };
 
@@ -65,7 +71,12 @@ export function MaterialPills({
     if (!draft) return;
     setBusy(true);
     setError(null);
-    const result = await saveMaterialAction(draft.id, { name: draft.name, unit: draft.unit, rate: draft.rate });
+    const result = await saveMaterialAction(draft.id, {
+      name: draft.name,
+      unit: draft.unit,
+      rate: draft.rate,
+      purchase_rate: draft.purchase_rate,
+    });
     setBusy(false);
     if (!result.success) return setError(result.error);
 
@@ -103,6 +114,7 @@ export function MaterialPills({
       <div className="flex flex-wrap items-center gap-1.5">
         {visible.map((m) => {
           const selected = m.name.toLowerCase() === selectedName.trim().toLowerCase();
+          const sideRate = side === 'vendor' ? m.purchase_rate : m.rate;
           if (managing) {
             return (
               <span key={m.id} className={`${pillBase} pl-2.5 pr-1 gap-0.5 bg-white border-zinc-300 text-zinc-800`}>
@@ -131,7 +143,7 @@ export function MaterialPills({
               key={m.id}
               type="button"
               onClick={() => onPick(m)}
-              title={m.rate !== null ? `${formatRs(m.rate)} per ${m.unit}` : m.unit}
+              title={sideRate !== null ? `${formatRs(sideRate)} per ${m.unit}` : m.unit}
               aria-pressed={selected}
               className={`${pillBase} px-2.5 ${
                 selected
@@ -176,16 +188,24 @@ export function MaterialPills({
       {draft && (
         <div className="p-3 rounded-lg border border-zinc-200 bg-zinc-50 space-y-2" onKeyDown={onEditorKeyDown}>
           <p className="text-xs font-medium text-zinc-700">{draft.id ? 'Edit material' : 'New material'}</p>
-          <div className="grid grid-cols-2 sm:grid-cols-[1fr_7rem_8rem] gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-[1fr_6.5rem_6.5rem_6.5rem] gap-x-2 gap-y-1">
+            <span className={`${miniLabel} col-span-3 sm:col-span-1`}>Name</span>
+            <span className={`${miniLabel} hidden sm:block`}>Unit</span>
+            <span className={`${miniLabel} hidden sm:block`}>Sale rate</span>
+            <span className={`${miniLabel} hidden sm:block`}>Purchase rate</span>
             <input
               type="text"
               aria-label="Material name"
               placeholder="Name"
               value={draft.name}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className={`${inputClass} h-9 col-span-2 sm:col-span-1`}
+              className={`${inputClass} h-9 col-span-3 sm:col-span-1`}
               autoFocus
             />
+            {/* On phones the labels sit in their own row under the name */}
+            <span className={`${miniLabel} mt-1 sm:hidden`}>Unit</span>
+            <span className={`${miniLabel} mt-1 sm:hidden`}>Sale rate</span>
+            <span className={`${miniLabel} mt-1 sm:hidden`}>Purchase rate</span>
             <Select
               ariaLabel="Unit"
               size="sm"
@@ -199,10 +219,21 @@ export function MaterialPills({
               inputMode="decimal"
               min="0"
               step="any"
-              aria-label="Default rate"
-              placeholder="Rate"
+              aria-label="Default sale rate"
+              placeholder="—"
               value={draft.rate}
               onChange={(e) => setDraft({ ...draft, rate: e.target.value })}
+              className={`${inputClass} h-9`}
+            />
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              aria-label="Default purchase rate"
+              placeholder="—"
+              value={draft.purchase_rate}
+              onChange={(e) => setDraft({ ...draft, purchase_rate: e.target.value })}
               className={`${inputClass} h-9`}
             />
           </div>
