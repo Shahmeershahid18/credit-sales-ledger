@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileBarChart } from 'lucide-react';
 import { MonthFlow } from '@/lib/types';
 import { formatMonth, formatMonthShort, formatRs } from '@/lib/format';
 import { cardClass } from './ui';
@@ -12,12 +12,13 @@ interface MonthlySummaryProps {
   prevHref: string;
   nextHref: string | null; // null on the current month
   reportHref: string;
+  children?: React.ReactNode; // shown at the bottom of the card, e.g. the last months
 }
 
 /**
  * One month's money in and out, with the change from the month before
  */
-export function MonthlySummary({ flow, previous, isCurrentMonth, prevHref, nextHref, reportHref }: MonthlySummaryProps) {
+export function MonthlySummary({ flow, previous, isCurrentMonth, prevHref, nextHref, reportHref, children }: MonthlySummaryProps) {
   const net = flow.received - flow.paid;
   const prevNet = previous.received - previous.paid;
   const vs = formatMonthShort(previous.month);
@@ -29,21 +30,32 @@ export function MonthlySummary({ flow, previous, isCurrentMonth, prevHref, nextH
           <h2 className="text-sm font-semibold text-zinc-900">Monthly summary</h2>
           <p className="text-xs text-zinc-500 mt-0.5">{isCurrentMonth ? 'This month so far' : `Compared with ${formatMonth(previous.month)}`}</p>
         </div>
-        <nav aria-label="Summary month" className="flex items-center h-9 rounded-lg border border-zinc-200 bg-white">
-          <Link href={prevHref} scroll={false} aria-label="Previous month" className="w-9 h-full flex items-center justify-center text-zinc-500 hover:text-zinc-900">
-            <ChevronLeft className="w-4 h-4" />
+        <div className="flex items-center gap-2">
+          <Link
+            href={reportHref}
+            aria-label={`Full report for ${formatMonth(flow.month)}`}
+            title={`Full report for ${formatMonth(flow.month)}`}
+            className="h-9 px-2.5 rounded-lg text-sm font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1.5"
+          >
+            <FileBarChart className="w-4 h-4" />
+            <span className="hidden sm:inline">Full report</span>
           </Link>
-          <span className="px-2 min-w-[8.5rem] text-center text-sm font-medium text-zinc-900">{formatMonth(flow.month)}</span>
-          {nextHref ? (
-            <Link href={nextHref} scroll={false} aria-label="Next month" className="w-9 h-full flex items-center justify-center text-zinc-500 hover:text-zinc-900">
-              <ChevronRight className="w-4 h-4" />
+          <nav aria-label="Summary month" className="flex items-center h-9 rounded-lg border border-zinc-200 bg-white">
+            <Link href={prevHref} scroll={false} aria-label="Previous month" className="w-9 h-full flex items-center justify-center text-zinc-500 hover:text-zinc-900">
+              <ChevronLeft className="w-4 h-4" />
             </Link>
-          ) : (
-            <span aria-hidden="true" className="w-9 h-full flex items-center justify-center text-zinc-300">
-              <ChevronRight className="w-4 h-4" />
-            </span>
-          )}
-        </nav>
+            <span className="px-2 min-w-[8.5rem] text-center text-sm font-medium text-zinc-900">{formatMonth(flow.month)}</span>
+            {nextHref ? (
+              <Link href={nextHref} scroll={false} aria-label="Next month" className="w-9 h-full flex items-center justify-center text-zinc-500 hover:text-zinc-900">
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            ) : (
+              <span aria-hidden="true" className="w-9 h-full flex items-center justify-center text-zinc-300">
+                <ChevronRight className="w-4 h-4" />
+              </span>
+            )}
+          </nav>
+        </div>
       </div>
 
       <dl className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-4">
@@ -66,12 +78,7 @@ export function MonthlySummary({ flow, previous, isCurrentMonth, prevHref, nextH
         />
       </dl>
 
-      <div className="mt-4 pt-3 border-t border-zinc-100">
-        <Link href={reportHref} className="text-sm font-medium text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1">
-          Full report for {formatMonth(flow.month)}
-          <ArrowRight className="w-4 h-4" />
-        </Link>
-      </div>
+      {children && <div className="mt-5 pt-4 border-t border-zinc-100">{children}</div>}
     </section>
   );
 }

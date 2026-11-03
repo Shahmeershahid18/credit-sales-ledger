@@ -44,8 +44,8 @@ login, and anything you add is lost when the server restarts. A banner in the ap
 - Both use the same rules: credit terms and due dates, payments applied to the oldest unpaid bill
   first (or to the one you pick), and 1–30 / 31–60 / 61–90 / 90+ day aging.
 - The dashboard shows both sides: to receive, to pay, net position and what falls due in the next 7 days.
-  Below that, a monthly summary (any past month, with the change from the month before) and a
-  6-month trend chart; clicking a month in the chart shows it in the summary.
+  Below that, a monthly summary (any past month, with the change from the month before) with the
+  last 6 months as a table or a chart; clicking a month shows it in the summary.
 - The monthly report has a Sales and a Purchases tab, and a last-12-months table with CSV export.
 - A contact is either a customer or a vendor, and that cannot be changed later. In the database both
   live in `customers` with a `kind` column; for a vendor, `credit_sales` rows are purchases and

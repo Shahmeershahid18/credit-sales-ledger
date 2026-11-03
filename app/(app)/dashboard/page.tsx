@@ -116,9 +116,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             prevHref={dashboardHref({ side, month: shiftMonth(summaryMonth, -1) })}
             nextHref={summaryMonth < currentMonth ? dashboardHref({ side, month: shiftMonth(summaryMonth, 1) }) : null}
             reportHref={`/reports/monthly?month=${summaryMonth}`}
-          />
-
-          <MonthlyTrendChart data={trend} selected={summaryMonth} query={side === 'vendor' ? 'side=vendor' : undefined} />
+          >
+            <MonthlyTrendChart data={trend} selected={summaryMonth} query={side === 'vendor' ? 'side=vendor' : undefined} />
+          </MonthlySummary>
 
           <section className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -167,6 +167,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   data={chartStats.agingSummary}
                   title={chartTerms.agingTitle}
                   totalLabel={chartKind === 'vendor' ? 'Payable' : 'Receivable'}
+                  compact
                 />
                 <TopCustomersChart kind={chartKind} customers={chartStats.topCustomers} />
               </div>
