@@ -6,7 +6,6 @@ import {
   Bar,
   CartesianGrid,
   ComposedChart,
-  Line,
   ReferenceArea,
   ResponsiveContainer,
   Tooltip,
@@ -25,23 +24,32 @@ interface MonthlyTrendChartProps {
   query?: string; // other dashboard parameters to keep, e.g. "side=vendor"
 }
 
-// Categorical slots 1–4 of the validated reference palette: money in is blue (bars)
-// and aqua (line), money out is orange (bars) and yellow (line).
+// Categorical slots 1–4 of the validated reference palette, in slot order so every
+// pair of neighbouring bars stays distinguishable: what was billed (sold, purchased),
+// then the cash that moved (received, paid). Colour follows the series, so hiding an
+// empty series never repaints the others.
 const SERIES = [
-  { key: 'sold', label: 'Sold', color: '#2a78d6', mark: 'bar' },
-  { key: 'purchased', label: 'Purchased', color: '#eb6834', mark: 'bar' },
-  { key: 'received', label: 'Received', color: '#1baf7a', mark: 'line' },
-  { key: 'paid', label: 'Paid', color: '#eda100', mark: 'line' },
+  { key: 'sold', label: 'Sold', color: '#2a78d6' },
+  { key: 'purchased', label: 'Purchased', color: '#eb6834' },
+  { key: 'received', label: 'Received', color: '#1baf7a' },
+  { key: 'paid', label: 'Paid', color: '#eda100' },
 ] as const;
 
 const axisTick = { fontSize: 11, fill: '#71717a' };
 const compact = (v: number) => (v >= 1_000_000 ? `${+(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
 
-function Swatch({ color, mark }: { color: string; mark: 'bar' | 'line' }) {
-  return mark === 'bar' ? (
-    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
-  ) : (
-    <span className="w-3.5 h-0.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+function Swatch({ color }: { color: string }) {
+  return <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />;
+}
+
+/** Month label on the x axis; the month shown in the summary is darker and bold */
+function MonthTick({ x, y, payload, selected }: { x?: number | string; y?: number | string; payload?: { value: string }; selected: string }) {
+  const month = payload?.value ?? '';
+  const isSelected = month === selected;
+  return (
+    <text x={Number(x)} y={Number(y) + 12} textAnchor="middle" fontSize={11} fontWeight={isSelected ? 600 : 400} fill={isSelected ? '#18181b' : '#71717a'}>
+      {formatMonthShort(month)}
+    </text>
   );
 }
 
@@ -54,7 +62,7 @@ function TrendTooltip({ active, payload }: TooltipContentProps<ValueType, NameTy
       <ul className="space-y-1">
         {SERIES.map((s) => (
           <li key={s.key} className="flex items-center gap-2">
-            <Swatch color={s.color} mark={s.mark} />
+            <Swatch color={s.color} />
             <span className="text-zinc-600">{s.label}</span>
             <span className="ml-auto pl-3 font-medium text-zinc-900 tabular-nums">{formatRs(flow[s.key])}</span>
           </li>
@@ -70,16 +78,18 @@ function TrendTooltip({ active, payload }: TooltipContentProps<ValueType, NameTy
 }
 
 /**
- * Last months of sold, purchased, received and paid, as a table (default) or a chart:
- * sales and purchases as bars, money received and paid as lines. Clicking a month
- * shows it in the monthly summary. Sits inside the summary card.
+ * Last months of sold, purchased, received and paid, as a table (default) or a chart
+ * of grouped bars. Series with nothing in these months are left out of the chart.
+ * Clicking a month shows it in the monthly summary. Sits inside the summary card.
  */
 export function MonthlyTrendChart({ data, selected, query }: MonthlyTrendChartProps) {
   const router = useRouter();
   const [view, setView] = useState<'chart' | 'table'>('table');
 
   const show = (month: string) => router.push(`/dashboard?${query ? `${query}&` : ''}month=${month}`, { scroll: false });
-  const hasActivity = data.some((d) => d.sold || d.purchased || d.received || d.paid);
+  // Only series with something to show; a flat line of zeros is noise
+  const visible = SERIES.filter((s) => data.some((d) => d[s.key] !== 0));
+  const hasActivity = visible.length > 0;
 
   return (
     <div>
@@ -104,9 +114,9 @@ export function MonthlyTrendChart({ data, selected, query }: MonthlyTrendChartPr
       {view === 'chart' ? (
         <>
           <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-600" aria-label="Legend">
-            {SERIES.map((s) => (
+            {visible.map((s) => (
               <li key={s.key} className="flex items-center gap-1.5">
-                <Swatch color={s.color} mark={s.mark} />
+                <Swatch color={s.color} />
                 {s.label}
               </li>
             ))}
@@ -120,36 +130,17 @@ export function MonthlyTrendChart({ data, selected, query }: MonthlyTrendChartPr
                   data={data}
                   margin={{ top: 8, right: 4, left: -8, bottom: 0 }}
                   barGap={2}
-                  barCategoryGap="28%"
+                  barCategoryGap="22%"
                   onClick={(state) => state.activeLabel && show(String(state.activeLabel))}
                   style={{ cursor: 'pointer' }}
                 >
-                  <ReferenceArea x1={selected} x2={selected} fill="#f4f4f5" fillOpacity={1} ifOverflow="hidden" />
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                  <XAxis
-                    dataKey="month"
-                    tickFormatter={formatMonthShort}
-                    tick={axisTick}
-                    axisLine={false}
-                    tickLine={false}
-                  />
+                  <ReferenceArea x1={selected} x2={selected} fill="#f4f4f5" fillOpacity={0.7} radius={6} ifOverflow="hidden" />
+                  <CartesianGrid vertical={false} stroke="#f0f0f1" />
+                  <XAxis dataKey="month" tick={(props) => <MonthTick {...props} selected={selected} />} axisLine={{ stroke: '#e4e4e7' }} tickLine={false} interval={0} />
                   <YAxis tickFormatter={compact} tick={axisTick} axisLine={false} tickLine={false} width={48} />
                   <Tooltip content={TrendTooltip} cursor={{ fill: '#fafafa' }} />
-                  {SERIES.filter((s) => s.mark === 'bar').map((s) => (
-                    <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
-                  ))}
-                  {SERIES.filter((s) => s.mark === 'line').map((s) => (
-                    <Line
-                      key={s.key}
-                      dataKey={s.key}
-                      name={s.label}
-                      type="linear"
-                      stroke={s.color}
-                      strokeWidth={2}
-                      dot={{ r: 4, fill: s.color, stroke: '#ffffff', strokeWidth: 2 }}
-                      activeDot={{ r: 5, fill: s.color, stroke: '#ffffff', strokeWidth: 2 }}
-                      isAnimationActive={false}
-                    />
+                  {visible.map((s) => (
+                    <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} radius={[4, 4, 0, 0]} maxBarSize={18} isAnimationActive={false} />
                   ))}
                 </ComposedChart>
               </ResponsiveContainer>

@@ -84,7 +84,7 @@ export function AgingChart({ data, title = 'Outstanding by age', totalLabel = 'O
           <div className={`${plotHeight} w-full`}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 10, right: 4, left: -12, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f4f4f5" />
+                <CartesianGrid vertical={false} stroke="#f0f0f1" />
                 <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#71717a' }} axisLine={false} tickLine={false} />
                 <YAxis
                   tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)}

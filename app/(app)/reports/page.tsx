@@ -3,21 +3,22 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getMonthFlows, getMonthlyReportData, getYearlyReportData } from '@/lib/queries';
 import { ContactKind, SIDES } from '@/lib/contacts';
-import { formatRs, getCurrentMonthStr, isValidMonthStr, shiftMonth } from '@/lib/format';
+import { formatRs, shiftMonth } from '@/lib/format';
+import { parseReportParams, reportQuery, type ReportSearchParams } from '@/lib/report-params';
 import { MonthPicker } from '@/components/MonthPicker';
 import { YearPicker } from '@/components/YearPicker';
 import { StatCard } from '@/components/StatCard';
 import { CsvExportButton } from '@/components/CsvExportButton';
 import { MonthlyHistory } from '@/components/MonthlyHistory';
 import { EmptyState, PageHeader, cardClass } from '@/components/ui';
-import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart } from 'lucide-react';
+import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart, FileDown } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Report' };
 
 interface ReportPageProps {
   // ?month=YYYY-MM for a monthly report (the default), ?year=YYYY for a yearly one
-  searchParams: Promise<{ month?: string; year?: string; side?: string }>;
+  searchParams: Promise<ReportSearchParams>;
 }
 
 // Column wording for each side of the report
@@ -26,7 +27,6 @@ const LABELS = {
   vendor: { tab: 'Purchases', moved: 'Material purchased', movedShort: 'Bought', paid: 'Payment made', paidShort: 'Paid', net: 'bought − paid', csvNet: 'bought - paid', file: 'purchases' },
 } as const;
 
-const FIRST_YEAR = 2000;
 const amountOrDash = (value: number) => (value > 0 ? formatRs(value) : '—');
 
 function netClass(value: number) {
@@ -55,20 +55,12 @@ function TabNav({ label, items }: { label: string; items: { label: string; href:
 }
 
 export default async function ReportPage({ searchParams }: ReportPageProps) {
-  const { month, year, side } = await searchParams;
-  const kind: ContactKind = side === 'vendor' ? 'vendor' : 'customer';
+  const params = parseReportParams(await searchParams);
+  const { kind, yearly, thisMonth, thisYear, year: reportYear, month: reportMonth } = params;
   const terms = SIDES[kind];
   const labels = LABELS[kind];
   const sideQuery = kind === 'vendor' ? 'side=vendor' : undefined;
   const withSide = (q: string, k: ContactKind = kind) => `/reports?${k === 'vendor' ? 'side=vendor&' : ''}${q}`;
-
-  const thisMonth = getCurrentMonthStr();
-  const thisYear = Number(thisMonth.slice(0, 4));
-
-  // A valid ?year (and no ?month) opens the yearly report; future years show this year
-  const yearly = !month && /^\d{4}$/.test(year ?? '');
-  const reportYear = yearly ? Math.min(Math.max(Number(year), FIRST_YEAR), thisYear) : 0;
-  const reportMonth = isValidMonthStr(month) ? month : thisMonth;
 
   // The months of the history table: the report's year, or the last 12 months
   const historyFrom = yearly ? `${reportYear}-01` : shiftMonth(thisMonth, -11);
@@ -85,7 +77,6 @@ export default async function ReportPage({ searchParams }: ReportPageProps) {
   const csvRows = rows.map((c) => [c.customerName, c.materialSold, c.paymentReceived, c.paymentDue, c.monthBalance]);
 
   // Switching between monthly and yearly keeps the same period where it can
-  const reportMonthYear = Number(reportMonth.slice(0, 4));
   const monthForYear = reportYear === thisYear ? thisMonth : `${reportYear}-12`;
   const periodQuery = yearly ? `year=${reportYear}` : `month=${reportMonth}`;
 
@@ -101,6 +92,14 @@ export default async function ReportPage({ searchParams }: ReportPageProps) {
             ) : (
               <MonthPicker currentMonth={reportMonth} query={sideQuery} />
             )}
+            {/* A plain link: the browser downloads the file the route sends */}
+            <a
+              href={`/reports/pdf?${reportQuery(params)}`}
+              className="h-9 px-3.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 inline-flex items-center gap-2 shadow-xs"
+            >
+              <FileDown className="w-4 h-4" />
+              Download PDF
+            </a>
             <CsvExportButton
               filename={`credit-ledger-${labels.file}-${yearly ? reportYear : reportMonth}`}
               headers={csvHeaders}
@@ -116,7 +115,7 @@ export default async function ReportPage({ searchParams }: ReportPageProps) {
           label="Report period"
           items={[
             { label: 'Monthly', href: withSide(`month=${yearly ? monthForYear : reportMonth}`), active: !yearly },
-            { label: 'Yearly', href: withSide(`year=${yearly ? reportYear : Math.min(reportMonthYear, thisYear)}`), active: yearly },
+            { label: 'Yearly', href: withSide(`year=${yearly ? reportYear : Math.min(reportYear, thisYear)}`), active: yearly },
           ]}
         />
         <TabNav

@@ -49,6 +49,8 @@ login, and anything you add is lost when the server restarts. A banner in the ap
 - The report (`/reports`) is monthly (`?month=2026-10`) or yearly (`?year=2026`), each with a Sales and a
   Purchases tab and CSV export. The monthly view ends with the last 12 months; the yearly view with that
   year month by month. Old `/reports/monthly` links redirect to it.
+- **Download PDF** on the report page (`/reports/pdf?…`, same parameters) gives a designed A4 report: key
+  figures, highlights, a month-by-month chart, the top contacts and the full table. Built with `@react-pdf/renderer`.
 - A contact is either a customer or a vendor, and that cannot be changed later. In the database both
   live in `customers` with a `kind` column; for a vendor, `credit_sales` rows are purchases and
   `payments` rows are payments made.
