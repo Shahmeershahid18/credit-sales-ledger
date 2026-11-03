@@ -3,17 +3,11 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { formatMonth, getCurrentMonthStr } from '@/lib/format';
+import { formatMonth, getCurrentMonthStr, shiftMonth } from '@/lib/format';
 
 interface MonthPickerProps {
   currentMonth: string; // YYYY-MM
   query?: string; // other report parameters to keep, e.g. "side=vendor"
-}
-
-function shiftMonth(month: string, delta: number): string {
-  const [y, m] = month.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
-  return d.toISOString().slice(0, 7);
 }
 
 export function MonthPicker({ currentMonth, query }: MonthPickerProps) {

@@ -1,12 +1,13 @@
 import React from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getMonthlyReportData } from '@/lib/queries';
+import { getMonthFlows, getMonthlyReportData } from '@/lib/queries';
 import { ContactKind, SIDES } from '@/lib/contacts';
-import { formatRs, getCurrentMonthStr, isValidMonthStr } from '@/lib/format';
+import { formatRs, getCurrentMonthStr, isValidMonthStr, shiftMonth } from '@/lib/format';
 import { MonthPicker } from '@/components/MonthPicker';
 import { StatCard } from '@/components/StatCard';
 import { CsvExportButton } from '@/components/CsvExportButton';
+import { MonthlyHistory } from '@/components/MonthlyHistory';
 import { EmptyState, PageHeader, cardClass } from '@/components/ui';
 import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart } from 'lucide-react';
 
@@ -37,12 +38,17 @@ export default async function MonthlyReportPage({ searchParams }: MonthlyReportP
   const terms = SIDES[kind];
   const labels = LABELS[kind];
   const currentMonth = isValidMonthStr(month) ? month : getCurrentMonthStr();
-  const report = await getMonthlyReportData(kind, currentMonth);
+  const thisMonth = getCurrentMonthStr();
+  const [report, history] = await Promise.all([
+    getMonthlyReportData(kind, currentMonth),
+    getMonthFlows(shiftMonth(thisMonth, -11), thisMonth),
+  ]);
   const rows = report.customerBreakdown;
 
   const csvHeaders = [terms.One, labels.moved, labels.paid, 'Payment due', `Net (${labels.csvNet})`];
   const csvRows = rows.map((c) => [c.customerName, c.materialSold, c.paymentReceived, c.paymentDue, c.monthBalance]);
 
+  const monthHref = (m: string) => `/reports/monthly?${kind === 'vendor' ? 'side=vendor&' : ''}month=${m}`;
   const tabHref = (k: ContactKind) => `/reports/monthly?${k === 'vendor' ? 'side=vendor&' : ''}month=${currentMonth}`;
 
   return (
@@ -189,6 +195,8 @@ export default async function MonthlyReportPage({ searchParams }: MonthlyReportP
           </>
         )}
       </section>
+
+      <MonthlyHistory flows={history} selected={currentMonth} hrefFor={monthHref} />
     </div>
   );
 }

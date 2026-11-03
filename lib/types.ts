@@ -185,6 +185,15 @@ export type DashboardStats = {
   }[];
 };
 
+/** Money moved in one month, on both sides */
+export type MonthFlow = {
+  month: string; // YYYY-MM
+  sold: number; // credit sales made
+  received: number; // payments from customers
+  purchased: number; // credit purchases made
+  paid: number; // payments to vendors
+};
+
 /** Both sides of the dashboard: what you will receive and what you have to pay */
 export type DashboardData = Record<ContactKind, DashboardStats>;
 

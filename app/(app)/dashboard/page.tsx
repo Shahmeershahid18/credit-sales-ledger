@@ -1,27 +1,47 @@
 import React from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getDashboard } from '@/lib/queries';
+import { getDashboard, getMonthFlows } from '@/lib/queries';
 import { ContactKind, SIDES } from '@/lib/contacts';
-import { formatDate, formatRs, getTodayDateStr } from '@/lib/format';
+import { formatDate, formatRs, getCurrentMonthStr, getTodayDateStr, isValidMonthStr, shiftMonth } from '@/lib/format';
 import { StatCard } from '@/components/StatCard';
 import { AgingChart } from '@/components/AgingChart';
 import { TopCustomersChart } from '@/components/TopCustomersChart';
+import { MonthlySummary } from '@/components/MonthlySummary';
+import { MonthlyTrendChart } from '@/components/MonthlyTrendChart';
 import { PageHeader, buttonClass, cardClass } from '@/components/ui';
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, CalendarClock, Plus, Scale, Truck, UserPlus } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, Plus, Scale, Truck, UserPlus } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Dashboard' };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+const TREND_MONTHS = 6;
+
 interface DashboardPageProps {
-  searchParams: Promise<{ side?: string }>;
+  searchParams: Promise<{ side?: string; month?: string }>;
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const { side } = await searchParams;
-  const data = await getDashboard();
+  const { side, month } = await searchParams;
+  const currentMonth = getCurrentMonthStr();
+  // Month shown in the summary card: any past month, never a future one
+  const summaryMonth = isValidMonthStr(month) && month < currentMonth ? month : currentMonth;
+  const trendFrom = shiftMonth(currentMonth, -(TREND_MONTHS - 1));
+  const flowsFrom = [trendFrom, shiftMonth(summaryMonth, -1)].sort()[0];
+
+  const [data, flows] = await Promise.all([getDashboard(), getMonthFlows(flowsFrom, currentMonth)]);
+  const trend = flows.filter((f) => f.month >= trendFrom);
+  const flowOf = (m: string) => flows.find((f) => f.month === m)!;
+
+  const dashboardHref = (params: { month?: string; side?: string }) => {
+    const q = new URLSearchParams();
+    if (params.side === 'vendor') q.set('side', 'vendor');
+    if (params.month && params.month !== currentMonth) q.set('month', params.month);
+    const qs = q.toString();
+    return qs ? `/dashboard?${qs}` : '/dashboard';
+  };
   const receive = data.customer;
   const pay = data.vendor;
 
@@ -89,25 +109,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             <DueSoonCard receive={receive.dueThisWeek} pay={pay.dueThisWeek} />
           </div>
 
-          <div className={`${cardClass} p-4 sm:p-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
-            <div>
-              <h2 className="text-sm font-semibold text-zinc-900">This month</h2>
-              <p className="text-xs text-zinc-500 mt-0.5">{receive.currentMonth.name}</p>
-            </div>
-            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 lg:gap-10 text-sm">
-              <MonthFigure label="Sold" value={receive.currentMonth.sold} />
-              <MonthFigure label="Received" value={receive.currentMonth.received} className="text-emerald-700" />
-              <MonthFigure label="Purchased" value={pay.currentMonth.sold} />
-              <MonthFigure label="Paid" value={pay.currentMonth.received} className="text-rose-700" />
-            </dl>
-            <Link
-              href="/reports/monthly"
-              className="text-sm font-medium text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1 self-start lg:self-auto"
-            >
-              Monthly report
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
+          <MonthlySummary
+            flow={flowOf(summaryMonth)}
+            previous={flowOf(shiftMonth(summaryMonth, -1))}
+            isCurrentMonth={summaryMonth === currentMonth}
+            prevHref={dashboardHref({ side, month: shiftMonth(summaryMonth, -1) })}
+            nextHref={summaryMonth < currentMonth ? dashboardHref({ side, month: shiftMonth(summaryMonth, 1) }) : null}
+            reportHref={`/reports/monthly?month=${summaryMonth}`}
+          />
+
+          <MonthlyTrendChart data={trend} selected={summaryMonth} query={side === 'vendor' ? 'side=vendor' : undefined} />
 
           <section className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -117,7 +128,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   return (
                     <Link
                       key={k}
-                      href={k === 'vendor' ? '/dashboard?side=vendor' : '/dashboard'}
+                      href={dashboardHref({ side: k, month: summaryMonth })}
+                      scroll={false}
                       aria-current={active ? 'page' : undefined}
                       className={`h-8 px-4 rounded-md text-sm font-medium flex items-center ${
                         active ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
@@ -162,15 +174,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </section>
         </>
       )}
-    </div>
-  );
-}
-
-function MonthFigure({ label, value, className = 'text-zinc-900' }: { label: string; value: number; className?: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-zinc-500">{label}</dt>
-      <dd className={`font-semibold tabular-nums ${className}`}>{formatRs(value)}</dd>
     </div>
   );
 }

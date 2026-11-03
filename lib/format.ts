@@ -95,6 +95,31 @@ export function nextMonthStart(monthStr: string): string {
 }
 
 /**
+ * The month `delta` months before (negative) or after `monthStr` (YYYY-MM)
+ */
+export function shiftMonth(monthStr: string, delta: number): string {
+  const [y, m] = monthStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7);
+}
+
+/**
+ * Every month from `from` to `to` (YYYY-MM), oldest first
+ */
+export function monthRange(from: string, to: string): string[] {
+  const months: string[] = [];
+  for (let m = from; m <= to; m = shiftMonth(m, 1)) months.push(m);
+  return months;
+}
+
+/**
+ * Short month name for chart axes: "Oct"
+ */
+export function formatMonthShort(monthStr: string): string {
+  const d = parseISO(`${monthStr}-01`);
+  return isValid(d) ? format(d, 'MMM') : monthStr;
+}
+
+/**
  * Compute due date given sale date and credit days
  */
 export function calculateDueDate(saleDate: string, creditDays: number): string {

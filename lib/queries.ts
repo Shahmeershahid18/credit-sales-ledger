@@ -15,6 +15,7 @@ import {
   buildMonthlyBreakdown,
   buildMonthlyReport,
   calculateDueSoon,
+  buildMonthFlows,
 } from './store';
 import { ContactKind, SIDES } from './contacts';
 import {
@@ -25,6 +26,7 @@ import {
   CustomerStatus,
   CustomerSummary,
   DashboardData,
+  MonthFlow,
   DashboardStats,
   Material,
   MonthTotals,
@@ -35,7 +37,7 @@ import {
   PaymentMethod,
   UserListItem,
 } from './types';
-import { addDays, calculateDueDate, getCurrentMonthStr, getTodayDateStr, nextMonthStart } from './format';
+import { addDays, calculateDueDate, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
 
 // All DB reads and writes live here. When Supabase is configured they go to the
 // database (views + monthly_report RPC), scoped to one user's ledger; otherwise they
@@ -366,6 +368,55 @@ export async function getOverdue(kind: ContactKind, creditDays?: number): Promis
   const [agingRows, customers] = await Promise.all([fetchAgingRows(ctx, kind, creditDays), fetchCustomers(ctx, kind)]);
   const names = new Map(customers.map((c) => [c.id, c.name]));
   return groupAgingByCustomer(agingRows, names, creditDays);
+}
+
+/**
+ * Sold, received, purchased and paid for every month from `from` to `to` (YYYY-MM),
+ * oldest first. Months without activity are included with zeros.
+ */
+export async function getMonthFlows(from: string, to: string): Promise<MonthFlow[]> {
+  const months = monthRange(from, to);
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const { customers, sales, payments } = getDemoData();
+    return buildMonthFlows(months, new Map(customers.map((c) => [c.id, c.kind])), sales, payments);
+  }
+
+  const { db, ownerId } = ctx;
+  const start = `${from}-01`;
+  const end = nextMonthStart(to);
+  const [contacts, sales, payments] = await Promise.all([
+    fetchAll((a, b) => db.from('customers').select('id, kind').eq('owner_id', ownerId).order('id').range(a, b)),
+    fetchAll((a, b) =>
+      db
+        .from('credit_sales')
+        .select('id, customer_id, sale_date, amount')
+        .eq('owner_id', ownerId)
+        .gte('sale_date', start)
+        .lt('sale_date', end)
+        .order('id')
+        .range(a, b)
+    ),
+    fetchAll((a, b) =>
+      db
+        .from('payments')
+        .select('id, customer_id, payment_date, amount')
+        .eq('owner_id', ownerId)
+        .gte('payment_date', start)
+        .lt('payment_date', end)
+        .order('id')
+        .range(a, b)
+    ),
+  ]);
+
+  const kinds = new Map(contacts.map((c) => [c.id, (c.kind === 'vendor' ? 'vendor' : 'customer') as ContactKind]));
+  return buildMonthFlows(
+    months,
+    kinds,
+    sales.map((x) => ({ customer_id: x.customer_id, sale_date: x.sale_date, amount: num(x.amount) })),
+    payments.map((x) => ({ customer_id: x.customer_id, payment_date: x.payment_date, amount: num(x.amount) }))
+  );
 }
 
 export async function getMonthlyReportData(kind: ContactKind, month: string): Promise<MonthlyReport> {

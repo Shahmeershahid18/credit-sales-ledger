@@ -15,8 +15,10 @@ import {
   MonthTotals,
   MonthlyBreakdownRow,
   MonthlyReport,
+  MonthFlow,
 } from './types';
 import { createSampleData } from './sample-data';
+import type { ContactKind } from './contacts';
 import { addDays, daysBetween, formatDate, formatMonth, getTodayDateStr } from './format';
 
 // ---------------------------------------------------------------------------
@@ -478,4 +480,37 @@ export function buildMonthlyReport(
     ...totals,
     customerBreakdown,
   };
+}
+
+/**
+ * Sold, received, purchased and paid for each month in `months` (YYYY-MM). An entry
+ * counts as a sale or a purchase by its contact's side; entries of unknown
+ * contacts and outside the months are ignored.
+ */
+export function buildMonthFlows(
+  months: string[],
+  kindByContact: Map<string, ContactKind>,
+  sales: { customer_id: string; sale_date: string; amount: number }[],
+  payments: { customer_id: string; payment_date: string; amount: number }[]
+): MonthFlow[] {
+  const byMonth = new Map<string, MonthFlow>(
+    months.map((month) => [month, { month, sold: 0, received: 0, purchased: 0, paid: 0 }])
+  );
+
+  for (const s of sales) {
+    const flow = byMonth.get(s.sale_date.slice(0, 7));
+    const kind = kindByContact.get(s.customer_id);
+    if (!flow || !kind) continue;
+    if (kind === 'vendor') flow.purchased += Number(s.amount);
+    else flow.sold += Number(s.amount);
+  }
+  for (const p of payments) {
+    const flow = byMonth.get(p.payment_date.slice(0, 7));
+    const kind = kindByContact.get(p.customer_id);
+    if (!flow || !kind) continue;
+    if (kind === 'vendor') flow.paid += Number(p.amount);
+    else flow.received += Number(p.amount);
+  }
+
+  return months.map((m) => byMonth.get(m)!);
 }
