@@ -419,25 +419,12 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
   );
 }
 
-export async function getMonthlyReportData(kind: ContactKind, month: string): Promise<MonthlyReport> {
-  const ctx = await getCtx();
-
-  if (!ctx) {
-    const { customers, sales, payments } = demoSide(kind);
-    const totals = calculateMonthTotals(month, sales, payments, calculateSaleBalances(sales, payments));
-    return buildMonthlyReport(month, totals, buildMonthlyBreakdown(month, customers, sales, payments));
-  }
-
-  const { db, ownerId } = ctx;
-  const start = `${month}-01`;
-  const end = nextMonthStart(month);
-
-  // Entries and payments of the whole ledger for the month; the breakdown keeps
-  // only those of this side's contacts.
-  const [totals, customers, soldOrDue, payments] = await Promise.all([
-    fetchMonthTotals(ctx, kind, month),
-    fetchCustomers(ctx, kind),
-    // Entries either made or falling due in this month
+/**
+ * Entries made or falling due in [start, end), and payments made in it, for the
+ * whole ledger. The report breakdown keeps only those of one side's contacts.
+ */
+async function fetchPeriodRows({ db, ownerId }: Ctx, start: string, end: string) {
+  const [soldOrDue, payments] = await Promise.all([
     fetchAll((from, to) =>
       db
         .from('credit_sales')
@@ -451,12 +438,68 @@ export async function getMonthlyReportData(kind: ContactKind, month: string): Pr
       db.from('payments').select('*').eq('owner_id', ownerId).gte('payment_date', start).lt('payment_date', end).order('id').range(from, to)
     ),
   ]);
+  return { sales: soldOrDue.map(toSale), payments: payments.map(toPayment) };
+}
 
-  return buildMonthlyReport(
-    month,
-    totals,
-    buildMonthlyBreakdown(month, customers, soldOrDue.map(toSale), payments.map(toPayment))
+/** Everything still unpaid on one side, as of today */
+async function fetchBalanceRemaining({ db, ownerId }: Ctx, kind: ContactKind): Promise<number> {
+  const rows = await fetchAll((from, to) =>
+    db
+      .from('sale_balances')
+      .select('id, outstanding')
+      .eq('owner_id', ownerId)
+      .eq('kind', kind)
+      .gt('outstanding', 0)
+      .order('id')
+      .range(from, to)
   );
+  return rows.reduce((total, r) => total + num(r.outstanding), 0);
+}
+
+export async function getMonthlyReportData(kind: ContactKind, month: string): Promise<MonthlyReport> {
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const { customers, sales, payments } = demoSide(kind);
+    const totals = calculateMonthTotals(month, sales, payments, calculateSaleBalances(sales, payments));
+    return buildMonthlyReport(month, totals, buildMonthlyBreakdown(month, customers, sales, payments));
+  }
+
+  const [totals, customers, rows] = await Promise.all([
+    fetchMonthTotals(ctx, kind, month),
+    fetchCustomers(ctx, kind),
+    fetchPeriodRows(ctx, `${month}-01`, nextMonthStart(month)),
+  ]);
+
+  return buildMonthlyReport(month, totals, buildMonthlyBreakdown(month, customers, rows.sales, rows.payments));
+}
+
+/**
+ * The same report for a whole calendar year (YYYY): sold (or purchased), received
+ * (or paid) and falling due during the year, by contact.
+ */
+export async function getYearlyReportData(kind: ContactKind, year: string): Promise<MonthlyReport> {
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const { customers, sales, payments } = demoSide(kind);
+    const totals = calculateMonthTotals(year, sales, payments, calculateSaleBalances(sales, payments));
+    return buildMonthlyReport(year, totals, buildMonthlyBreakdown(year, customers, sales, payments));
+  }
+
+  const [customers, rows, balanceRemaining] = await Promise.all([
+    fetchCustomers(ctx, kind),
+    fetchPeriodRows(ctx, `${year}-01-01`, `${Number(year) + 1}-01-01`),
+    fetchBalanceRemaining(ctx, kind),
+  ]);
+
+  // Rows are for the whole ledger; count only this side's contacts
+  const ids = new Set(customers.map((c) => c.id));
+  const sales = rows.sales.filter((s) => ids.has(s.customer_id));
+  const payments = rows.payments.filter((p) => ids.has(p.customer_id));
+  const totals = { ...calculateMonthTotals(year, sales, payments, []), balanceRemaining };
+
+  return buildMonthlyReport(year, totals, buildMonthlyBreakdown(year, customers, sales, payments));
 }
 
 /**

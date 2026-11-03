@@ -46,7 +46,9 @@ login, and anything you add is lost when the server restarts. A banner in the ap
 - The dashboard shows both sides: to receive, to pay, net position and what falls due in the next 7 days.
   Below that, a monthly summary (any past month, with the change from the month before) with the
   last 6 months as a table or a chart; clicking a month shows it in the summary.
-- The monthly report has a Sales and a Purchases tab, and a last-12-months table with CSV export.
+- The report (`/reports`) is monthly (`?month=2026-10`) or yearly (`?year=2026`), each with a Sales and a
+  Purchases tab and CSV export. The monthly view ends with the last 12 months; the yearly view with that
+  year month by month. Old `/reports/monthly` links redirect to it.
 - A contact is either a customer or a vendor, and that cannot be changed later. In the database both
   live in `customers` with a `kind` column; for a vendor, `credit_sales` rows are purchases and
   `payments` rows are payments made.
@@ -71,7 +73,7 @@ the same zone.
 
 - `app/page.tsx` – public landing page at `/` (signed-in users are sent to `/dashboard`)
 - `app/(app)/` – signed-in pages: dashboard (`/dashboard`), customers, vendors, ledgers, overdue,
-  bills to pay, monthly report, account (`/account`) and users (`/users`, admins only)
+  bills to pay, report (`/reports`), account (`/account`) and users (`/users`, admins only)
 - `components/views/` – page bodies shared by the customer and vendor routes
 - `lib/contacts.ts` – customer and vendor wording and links
 - `app/actions/` – Server Actions (customers, sales, payments, materials, auth, account, users)

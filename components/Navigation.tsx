@@ -41,7 +41,7 @@ const customersItem: NavItem = { label: 'Customers', href: '/customers', icon: U
 const overdueItem: NavItem = { label: 'Overdue', href: '/overdue', icon: AlertCircle, match: starts('/overdue') };
 const vendorsItem: NavItem = { label: 'Vendors', href: '/vendors', icon: Truck, match: starts('/vendors') };
 const billsItem: NavItem = { label: 'Bills to pay', href: '/bills', icon: CalendarClock, match: starts('/bills') };
-const reportItem: NavItem = { label: 'Monthly Report', short: 'Report', href: '/reports/monthly', icon: FileBarChart, match: starts('/reports') };
+const reportItem: NavItem = { label: 'Report', href: '/reports', icon: FileBarChart, match: starts('/reports') };
 
 const sidebarSections: { title?: string; items: NavItem[] }[] = [
   { items: [dashboardItem] },

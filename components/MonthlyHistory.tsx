@@ -7,8 +7,11 @@ import { cardClass } from './ui';
 
 interface MonthlyHistoryProps {
   flows: MonthFlow[]; // oldest first
-  selected: string; // month open in the report
+  selected?: string; // month open in the report
   hrefFor: (month: string) => string;
+  title?: string;
+  description?: string;
+  newestFirst?: boolean; // false lists January first, as in a yearly report
 }
 
 const COLUMNS = [
@@ -20,12 +23,21 @@ const COLUMNS = [
 
 const amountOrDash = (value: number) => (value !== 0 ? formatRs(value) : '—');
 const toneFor = (value: number, tone: string) => (value !== 0 ? tone : 'text-zinc-300');
+const hasActivity = (f: MonthFlow) => COLUMNS.some((c) => f[c.key] !== 0);
 
 /**
- * Month-by-month totals for both sides, newest first. Each row opens that month's report.
+ * Month-by-month totals for both sides, newest first by default. Each row opens that
+ * month's report.
  */
-export function MonthlyHistory({ flows, selected, hrefFor }: MonthlyHistoryProps) {
-  const rows = [...flows].reverse();
+export function MonthlyHistory({
+  flows,
+  selected,
+  hrefFor,
+  title = `Last ${flows.length} months`,
+  description = 'Sales and purchases side by side. Open a month to see it in detail.',
+  newestFirst = true,
+}: MonthlyHistoryProps) {
+  const rows = newestFirst ? [...flows].reverse() : flows;
   const total = (key: (typeof COLUMNS)[number]['key']) => flows.reduce((sum, f) => sum + f[key], 0);
   const net = (f: Pick<MonthFlow, 'received' | 'paid'>) => f.received - f.paid;
   const totals = { sold: total('sold'), received: total('received'), purchased: total('purchased'), paid: total('paid') };
@@ -37,8 +49,8 @@ export function MonthlyHistory({ flows, selected, hrefFor }: MonthlyHistoryProps
     <section className={`${cardClass} overflow-hidden`}>
       <div className="px-4 py-3 border-b border-zinc-100 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-900">Last {flows.length} months</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">Sales and purchases side by side. Open a month to see it in detail.</p>
+          <h2 className="text-sm font-semibold text-zinc-900">{title}</h2>
+          <p className="text-xs text-zinc-500 mt-0.5">{description}</p>
         </div>
         <CsvExportButton
           filename={`credit-ledger-months-${first}-to-${last}`}
@@ -54,18 +66,25 @@ export function MonthlyHistory({ flows, selected, hrefFor }: MonthlyHistoryProps
             <Link href={hrefFor(f.month)} className="block px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-medium text-zinc-900">{formatMonth(f.month)}</span>
-                <span className="text-xs text-zinc-500">
-                  Net cash <span className={`font-semibold tabular-nums ${net(f) < 0 ? 'text-rose-700' : 'text-zinc-900'}`}>{formatRs(net(f))}</span>
-                </span>
+                {hasActivity(f) ? (
+                  <span className="text-xs text-zinc-500">
+                    Net cash <span className={`font-semibold tabular-nums ${net(f) < 0 ? 'text-rose-700' : 'text-zinc-900'}`}>{formatRs(net(f))}</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-zinc-400">No activity</span>
+                )}
               </div>
-              <dl className="mt-2 grid grid-cols-4 gap-2 text-xs">
-                {COLUMNS.map((c) => (
-                  <div key={c.key}>
-                    <dt className="text-zinc-400">{c.label}</dt>
-                    <dd className={`font-medium tabular-nums ${toneFor(f[c.key], c.tone)}`}>{amountOrDash(f[c.key])}</dd>
-                  </div>
-                ))}
-              </dl>
+              {/* Months without activity stay one line */}
+              {hasActivity(f) && (
+                <dl className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                  {COLUMNS.map((c) => (
+                    <div key={c.key}>
+                      <dt className="text-zinc-400">{c.label}</dt>
+                      <dd className={`font-medium tabular-nums ${toneFor(f[c.key], c.tone)}`}>{amountOrDash(f[c.key])}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
             </Link>
           </li>
         ))}

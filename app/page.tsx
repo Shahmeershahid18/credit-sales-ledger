@@ -39,8 +39,8 @@ const FEATURES = [
   },
   {
     icon: FileBarChart,
-    title: 'Monthly report',
-    text: 'Sold, purchased, received and paid for any month, with amounts falling due and CSV export.',
+    title: 'Monthly and yearly reports',
+    text: 'Sold, purchased, received and paid for any month or year, with amounts falling due and CSV export.',
   },
   {
     icon: MessageCircle,

@@ -417,10 +417,13 @@ export function buildDashboardStats(
   };
 }
 
-const inMonth = (dateStr: string, month: string) => dateStr.startsWith(`${month}-`);
+// A period is a month (YYYY-MM) or a whole year (YYYY): both match by date prefix.
+const inMonth = (dateStr: string, period: string) => dateStr.startsWith(`${period}-`);
+const isYear = (period: string) => /^\d{4}$/.test(period);
 
 /**
- * Month totals. Matches the `monthly_report` SQL function.
+ * Totals for a month (YYYY-MM) or a year (YYYY). For a month this matches the
+ * `monthly_report` SQL function.
  */
 export function calculateMonthTotals(
   month: string,
@@ -437,8 +440,8 @@ export function calculateMonthTotals(
 }
 
 /**
- * Customer-wise activity for a month. `sales` and `payments` may contain other
- * months; only rows belonging to `month` are counted.
+ * Customer-wise activity for a month (YYYY-MM) or a year (YYYY). `sales` and
+ * `payments` may contain other periods; only rows belonging to `month` are counted.
  */
 export function buildMonthlyBreakdown(
   month: string,
@@ -476,7 +479,7 @@ export function buildMonthlyReport(
 ): MonthlyReport {
   return {
     month,
-    formattedMonth: formatMonth(month),
+    formattedMonth: isYear(month) ? month : formatMonth(month),
     ...totals,
     customerBreakdown,
   };

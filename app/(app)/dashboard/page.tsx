@@ -115,7 +115,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             isCurrentMonth={summaryMonth === currentMonth}
             prevHref={dashboardHref({ side, month: shiftMonth(summaryMonth, -1) })}
             nextHref={summaryMonth < currentMonth ? dashboardHref({ side, month: shiftMonth(summaryMonth, 1) }) : null}
-            reportHref={`/reports/monthly?month=${summaryMonth}`}
+            reportHref={`/reports?${side === 'vendor' ? 'side=vendor&' : ''}month=${summaryMonth}`}
           >
             <MonthlyTrendChart data={trend} selected={summaryMonth} query={side === 'vendor' ? 'side=vendor' : undefined} />
           </MonthlySummary>

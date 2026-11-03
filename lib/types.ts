@@ -207,8 +207,8 @@ export type MonthlyBreakdownRow = {
 };
 
 export type MonthlyReport = MonthTotals & {
-  month: string; // YYYY-MM
-  formattedMonth: string;
+  month: string; // YYYY-MM, or YYYY for a yearly report
+  formattedMonth: string; // "October 2026", or "2026"
   customerBreakdown: MonthlyBreakdownRow[];
 };
 

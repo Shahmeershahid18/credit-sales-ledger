@@ -13,7 +13,7 @@ interface MonthPickerProps {
 export function MonthPicker({ currentMonth, query }: MonthPickerProps) {
   const router = useRouter();
   const thisMonth = getCurrentMonthStr();
-  const go = (month: string) => router.push(`/reports/monthly?${query ? `${query}&` : ''}month=${month}`);
+  const go = (month: string) => router.push(`/reports?${query ? `${query}&` : ''}month=${month}`);
 
   return (
     <div className="flex items-center gap-2">
