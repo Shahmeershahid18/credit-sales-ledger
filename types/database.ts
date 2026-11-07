@@ -40,7 +40,8 @@ export type Database = {
         Row: {
           id: string;
           owner_id: string;
-          kind: string;
+          is_customer: boolean;
+          is_vendor: boolean;
           name: string;
           phone: string | null;
           address: string | null;
@@ -49,7 +50,8 @@ export type Database = {
         Insert: {
           id?: string;
           owner_id?: string;
-          kind?: string;
+          is_customer?: boolean;
+          is_vendor?: boolean;
           name: string;
           phone?: string | null;
           address?: string | null;
@@ -58,7 +60,8 @@ export type Database = {
         Update: {
           id?: string;
           owner_id?: string;
-          kind?: string;
+          is_customer?: boolean;
+          is_vendor?: boolean;
           name?: string;
           phone?: string | null;
           address?: string | null;
@@ -71,6 +74,7 @@ export type Database = {
           id: string;
           owner_id: string;
           customer_id: string;
+          kind: string;
           sale_date: string;
           material: string;
           quantity: number;
@@ -86,6 +90,7 @@ export type Database = {
           id?: string;
           owner_id?: string;
           customer_id: string;
+          kind?: string;
           sale_date?: string;
           material: string;
           quantity?: number;
@@ -99,6 +104,7 @@ export type Database = {
           id?: string;
           owner_id?: string;
           customer_id?: string;
+          kind?: string;
           sale_date?: string;
           material?: string;
           quantity?: number;
@@ -123,10 +129,12 @@ export type Database = {
           id: string;
           owner_id: string;
           customer_id: string;
+          kind: string;
           payment_date: string;
           amount: number;
           method: string;
           sale_id: string | null;
+          settlement_id: string | null;
           notes: string | null;
           created_at: string;
         };
@@ -134,10 +142,12 @@ export type Database = {
           id?: string;
           owner_id?: string;
           customer_id: string;
+          kind?: string;
           payment_date?: string;
           amount: number;
           method?: string;
           sale_id?: string | null;
+          settlement_id?: string | null;
           notes?: string | null;
           created_at?: string;
         };
@@ -145,10 +155,12 @@ export type Database = {
           id?: string;
           owner_id?: string;
           customer_id?: string;
+          kind?: string;
           payment_date?: string;
           amount?: number;
           method?: string;
           sale_id?: string | null;
+          settlement_id?: string | null;
           notes?: string | null;
           created_at?: string;
         };
@@ -231,6 +243,8 @@ export type Database = {
           status: string | null;
           owner_id: string | null;
           kind: string | null;
+          is_customer: boolean | null;
+          is_vendor: boolean | null;
         };
         Relationships: [];
       };
@@ -262,6 +276,14 @@ export type Database = {
       app_today: {
         Args: Record<PropertyKey, never>;
         Returns: string;
+      };
+      settle_party: {
+        Args: { p_party: string; p_amount: number; p_date: string; p_notes?: string | null };
+        Returns: string;
+      };
+      merge_parties: {
+        Args: { p_keep: string; p_merge: string };
+        Returns: undefined;
       };
       monthly_report: {
         Args: { p_month: string; p_owner: string; p_kind?: string };

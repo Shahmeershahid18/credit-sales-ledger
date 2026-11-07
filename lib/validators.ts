@@ -44,6 +44,21 @@ function optionalRate(message: string) {
 
 export const ContactKindSchema = z.enum(['customer', 'vendor']);
 
+export const PartyRolesSchema = z
+  .object({ is_customer: z.boolean(), is_vendor: z.boolean() })
+  .refine((r) => r.is_customer || r.is_vendor, 'Choose customer, vendor or both.');
+
+export const SettlementSchema = z.object({
+  amount: z.coerce.number().positive('The adjustment amount must be greater than 0'),
+  date: dateField,
+  notes: optionalText,
+});
+
+/** A statement period: both dates valid, from on or before to */
+export const StatementRangeSchema = z
+  .object({ from: dateField, to: dateField })
+  .refine((r) => r.from <= r.to, 'The start date must be on or before the end date');
+
 export const MaterialSchema = z.object({
   name: z.string().trim().min(1, 'Material name is required').max(80, 'Material name is too long'),
   unit: z.string().trim().min(1, 'Unit is required').max(20),

@@ -3,7 +3,8 @@ import { addDays, calculateDueDate, getTodayDateStr } from './format';
 
 /**
  * Demo records with dates relative to today so overdue calculations always look realistic.
- * Mirrors supabase/seed.sql. Vendors use the same records: their "sales" are purchases.
+ * Mirrors supabase/seed.sql. Purchases are bills with kind 'vendor'; Ittefaq Steel is
+ * both a vendor and a customer, to show the combined ledger.
  */
 export function createSampleData(): {
   customers: Customer[];
@@ -16,14 +17,14 @@ export function createSampleData(): {
   const createdAt = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
 
   const customers: Customer[] = [
-    { id: 'cust-1', kind: 'customer', name: 'Ali Traders', phone: '+92 300 1234567', address: 'Shop #14, Main Market, Lahore', created_at: createdAt(60) },
-    { id: 'cust-2', kind: 'customer', name: 'Khan Construction', phone: '+92 321 9876543', address: 'Plot 45, Sector G-11, Islamabad', created_at: createdAt(50) },
-    { id: 'cust-3', kind: 'customer', name: 'Metro Builders & Co.', phone: '+92 333 4567890', address: 'Industrial Area, Karachi', created_at: createdAt(40) },
-    { id: 'cust-4', kind: 'customer', name: 'Bilal Hardware Store', phone: '+92 345 1122334', address: 'Circular Road, Faisalabad', created_at: createdAt(30) },
-    { id: 'cust-5', kind: 'customer', name: 'Hamza & Sons Ltd.', phone: '+92 312 8877665', address: 'GT Road, Gujranwala', created_at: createdAt(20) },
-    { id: 'vend-1', kind: 'vendor', name: 'Lucky Cement Depot', phone: '+92 301 5551234', address: 'Ravi Road, Lahore', created_at: createdAt(70) },
-    { id: 'vend-2', kind: 'vendor', name: 'Ittefaq Steel Mills', phone: '+92 322 4448899', address: 'Kot Lakhpat, Lahore', created_at: createdAt(65) },
-    { id: 'vend-3', kind: 'vendor', name: 'Indus Sand & Crush', phone: '+92 334 7776655', address: 'Kala Shah Kaku', created_at: createdAt(45) },
+    { id: 'cust-1', is_customer: true, is_vendor: false, name: 'Ali Traders', phone: '+92 300 1234567', address: 'Shop #14, Main Market, Lahore', created_at: createdAt(60) },
+    { id: 'cust-2', is_customer: true, is_vendor: false, name: 'Khan Construction', phone: '+92 321 9876543', address: 'Plot 45, Sector G-11, Islamabad', created_at: createdAt(50) },
+    { id: 'cust-3', is_customer: true, is_vendor: false, name: 'Metro Builders & Co.', phone: '+92 333 4567890', address: 'Industrial Area, Karachi', created_at: createdAt(40) },
+    { id: 'cust-4', is_customer: true, is_vendor: false, name: 'Bilal Hardware Store', phone: '+92 345 1122334', address: 'Circular Road, Faisalabad', created_at: createdAt(30) },
+    { id: 'cust-5', is_customer: true, is_vendor: false, name: 'Hamza & Sons Ltd.', phone: '+92 312 8877665', address: 'GT Road, Gujranwala', created_at: createdAt(20) },
+    { id: 'vend-1', is_customer: false, is_vendor: true, name: 'Lucky Cement Depot', phone: '+92 301 5551234', address: 'Ravi Road, Lahore', created_at: createdAt(70) },
+    { id: 'vend-2', is_customer: true, is_vendor: true, name: 'Ittefaq Steel Mills', phone: '+92 322 4448899', address: 'Kot Lakhpat, Lahore', created_at: createdAt(65) },
+    { id: 'vend-3', is_customer: false, is_vendor: true, name: 'Indus Sand & Crush', phone: '+92 334 7776655', address: 'Kala Shah Kaku', created_at: createdAt(45) },
   ];
 
   const sale = (
@@ -39,6 +40,7 @@ export function createSampleData(): {
   ): CreditSale => ({
     id,
     customer_id,
+    kind: id.startsWith('pur') ? 'vendor' : 'customer',
     sale_date: daysAgo(ago),
     material,
     quantity,
@@ -71,6 +73,8 @@ export function createSampleData(): {
     sale('pur-2', 'vend-1', 25, 'Bestway Cement Bags', 120, 'bag', 1210, 30, 'Bill #LC-2291'),
     // Ittefaq Steel: one purchase, not yet due
     sale('pur-3', 'vend-2', 20, 'Steel Rebars (Grade 60)', 2, 'ton', 138000, 60, 'Invoice 5531'),
+    // Ittefaq Steel also buys cement from you: its ledger nets this against the steel
+    sale('sale-9', 'vend-2', 12, 'DG Cement Bags', 150, 'bag', 1500, 30, 'Mill boundary wall'),
     // Indus Sand & Crush: fully paid
     sale('pur-4', 'vend-3', 40, 'Fine River Sand', 6, 'truck', 22000, 15, 'Gate pass 118'),
   ];
@@ -82,7 +86,16 @@ export function createSampleData(): {
     amount: number,
     method: Payment['method'],
     notes: string
-  ): Payment => ({ id, customer_id, payment_date: daysAgo(ago), amount, method, notes, created_at: createdAt(ago) });
+  ): Payment => ({
+    id,
+    customer_id,
+    kind: id.startsWith('vpm') ? 'vendor' : 'customer',
+    payment_date: daysAgo(ago),
+    amount,
+    method,
+    notes,
+    created_at: createdAt(ago),
+  });
 
   const payments: Payment[] = [
     payment('pmt-1', 'cust-1', 12, 100000, 'bank', 'Bank Transfer (Meezan Bank Tx #7891)'),
@@ -94,10 +107,9 @@ export function createSampleData(): {
   ];
 
   // One pill per material, with the sale rate and the purchase rate where known
-  const customerIds = new Set(customers.filter((c) => c.kind === 'customer').map((c) => c.id));
   const materials: Material[] = [];
   for (const s of sales) {
-    const isSale = customerIds.has(s.customer_id);
+    const isSale = s.kind === 'customer';
     let m = materials.find((x) => x.name === s.material);
     if (!m) {
       m = { id: `mat-${materials.length + 1}`, name: s.material, unit: s.unit, rate: null, purchase_rate: null, created_at: s.created_at };

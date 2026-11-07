@@ -15,7 +15,7 @@ import { ArrowDownLeft, ArrowUpRight, CalendarClock, Plus, Scale, Truck, UserPlu
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Dashboard' };
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 const TREND_MONTHS = 6;
 
@@ -49,7 +49,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const chartKind: ContactKind = side === 'vendor' ? 'vendor' : 'customer';
   const chartStats = data[chartKind];
   const chartTerms = SIDES[chartKind];
-  const net = receive.totalOutstanding - pay.totalOutstanding;
+  // Each party's sales and purchases are netted first, so money is never counted on both sides
+  const { toReceive, toPay, receiveParties, payParties } = data.net;
+  const net = toReceive - toPay;
 
   return (
     <div className="space-y-6">
@@ -77,26 +79,26 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
             <StatCard
               label="To receive"
-              value={formatRs(receive.totalOutstanding)}
+              value={formatRs(toReceive)}
               icon={ArrowDownLeft}
-              variant={receive.totalOverdue > 0 ? 'danger' : receive.totalOutstanding > 0 ? 'warning' : 'default'}
+              variant={receive.totalOverdue > 0 ? 'danger' : toReceive > 0 ? 'warning' : 'default'}
               subtext={
                 receive.totalOverdue > 0
                   ? `${formatRs(receive.totalOverdue)} overdue`
-                  : `${plural(receive.customersWithBalance, 'customer')} with a balance`
+                  : `${plural(receiveParties, 'party', 'parties')} owe you`
               }
             />
             <StatCard
               label="To pay"
-              value={formatRs(pay.totalOutstanding)}
+              value={formatRs(toPay)}
               icon={ArrowUpRight}
-              variant={pay.totalOverdue > 0 ? 'danger' : pay.totalOutstanding > 0 ? 'warning' : 'default'}
+              variant={pay.totalOverdue > 0 ? 'danger' : toPay > 0 ? 'warning' : 'default'}
               subtext={
-                !hasVendors
+                !hasVendors && toPay === 0
                   ? 'No vendors yet'
                   : pay.totalOverdue > 0
                   ? `${formatRs(pay.totalOverdue)} overdue`
-                  : `${plural(pay.customersWithBalance, 'vendor')} to pay`
+                  : `${plural(payParties, 'party', 'parties')} to pay`
               }
             />
             <StatCard

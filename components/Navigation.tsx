@@ -141,7 +141,7 @@ export function Navigation({ isDemo, account, extraSection }: NavigationProps) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-60 shrink-0 h-screen sticky top-0 bg-zinc-900 text-zinc-300 border-r border-zinc-800">
+      <aside className="print:hidden hidden lg:flex flex-col w-60 shrink-0 h-screen sticky top-0 bg-zinc-900 text-zinc-300 border-r border-zinc-800">
         <div className="px-5 h-16 flex items-center border-b border-zinc-800">
           <Link href="/dashboard" aria-label="Credit Ledger home">
             <Logo markClassName="w-8 h-8" textClassName="text-white" />
@@ -246,7 +246,7 @@ export function Navigation({ isDemo, account, extraSection }: NavigationProps) {
       </aside>
 
       {/* Mobile top bar */}
-      <header className="lg:hidden sticky top-0 z-40 h-14 px-4 bg-white/90 backdrop-blur border-b border-zinc-200 flex items-center justify-between">
+      <header className="print:hidden lg:hidden sticky top-0 z-40 h-14 px-4 bg-white/90 backdrop-blur border-b border-zinc-200 flex items-center justify-between">
         <Link href="/dashboard" aria-label="Credit Ledger home">
           <Logo markClassName="w-7 h-7" />
         </Link>
@@ -283,7 +283,7 @@ export function Navigation({ isDemo, account, extraSection }: NavigationProps) {
       </header>
 
       {/* Mobile bottom tabs */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-zinc-200 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
+      <nav className="print:hidden lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-zinc-200 grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
         {mobileTabs.map((item) => {
           const Icon = item.icon;
           const active = item.match(pathname);

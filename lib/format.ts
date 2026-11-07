@@ -18,6 +18,22 @@ export function formatRs(amount: number | null | undefined): string {
 }
 
 /**
+ * A party balance as an amount with its side: Dr when they owe you (receivable),
+ * Cr when you owe them (payable). Zero has no side.
+ */
+export function formatBalance(balance: number): string {
+  const rounded = Math.round(balance);
+  if (rounded === 0) return 'Rs. 0';
+  return `${formatRs(Math.abs(rounded))} ${rounded > 0 ? 'Dr' : 'Cr'}`;
+}
+
+/** "Receivable" or "Payable" for a party balance (+ they owe you, − you owe them) */
+export function balanceLabel(balance: number): 'Receivable' | 'Payable' | 'Settled' {
+  const rounded = Math.round(balance);
+  return rounded > 0 ? 'Receivable' : rounded < 0 ? 'Payable' : 'Settled';
+}
+
+/**
  * Format date string into "31 Oct 2026" or fallback
  */
 export function formatDate(dateStr: string | null | undefined): string {

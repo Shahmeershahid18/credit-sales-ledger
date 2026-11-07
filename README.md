@@ -31,7 +31,9 @@ login, and anything you add is lost when the server restarts. A banner in the ap
    4. `supabase/migrations/20261026030000_users_and_separate_ledgers.sql` (user roles and a separate
       ledger per user)
    5. `supabase/migrations/20261031000000_vendors.sql` (vendors, purchases and bills to pay)
-   6. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+   6. `supabase/migrations/20261107000000_parties.sql` (one party can be a customer and a vendor, with a
+      combined ledger, settlement and merge)
+   7. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
    The service role key is a secret used only on the server; never commit it.
@@ -51,9 +53,25 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   year month by month. Old `/reports/monthly` links redirect to it.
 - **Download PDF** on the report page (`/reports/pdf?…`, same parameters) gives a designed A4 report: key
   figures, highlights, a month-by-month chart, the top contacts and the full table. Built with `@react-pdf/renderer`.
-- A contact is either a customer or a vendor, and that cannot be changed later. In the database both
-  live in `customers` with a `kind` column; for a vendor, `credit_sales` rows are purchases and
-  `payments` rows are payments made.
+- **One party, two roles.** A party can be a customer, a vendor or both (tick both on its form). Recording
+  a purchase for a customer-only party (or a sale for a vendor-only one) switches the other role on.
+- **Combined ledger.** A party's page lists its sales, purchases and payments in one running ledger with
+  Debit (sales, payments you made), Credit (purchases, payments you received) and a balance marked
+  **Dr** (receivable) or **Cr** (payable). For a party that is both, the page shows the net balance
+  (total sale less total purchase, after payments both ways).
+- **Adjust (settlement).** On a party that is both, **Adjust** records one adjustment that sets purchases
+  off against sales: it clears that amount of unpaid bills on both sides, oldest first, so overdue and
+  bills-to-pay stay correct. The net balance does not change, and reports count only money, not adjustments.
+- **Statement.** **Statement** on a party page shows any period (From–To) with the opening balance, every
+  entry and the closing balance, and can be printed or downloaded as PDF
+  (`/customers/[id]/statement/pdf?from=…&to=…`).
+- **Merge.** A business entered twice (once as a customer, once as a vendor) can be merged on the edit
+  page; all entries move to the party you keep.
+- The dashboard's **To receive** and **To pay** net each party's two sides first, so the same money is
+  never counted on both sides.
+- In the database, parties live in `customers` (`is_customer`, `is_vendor`). Each `credit_sales` row is
+  a sale or a purchase and each `payments` row is received or paid, by its `kind` column
+  (`customer` / `vendor`). `settle_party()` and `merge_parties()` do settlement and merge.
 - Saved materials are shared by both forms and keep a sale rate and a purchase rate.
 
 ## Users and roles

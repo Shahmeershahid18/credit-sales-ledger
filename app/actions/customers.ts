@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { ContactKindSchema, CustomerSchema, firstIssue } from '@/lib/validators';
+import { CustomerSchema, PartyRolesSchema, firstIssue } from '@/lib/validators';
 import { createCustomer, updateCustomer } from '@/lib/queries';
 import { requireUser } from '@/lib/auth';
 
@@ -13,18 +13,26 @@ function readCustomerForm(formData: FormData) {
   });
 }
 
+// The form sends is_customer / is_vendor as "true" or "false"
+function readRoles(formData: FormData) {
+  return PartyRolesSchema.safeParse({
+    is_customer: formData.get('is_customer') === 'true',
+    is_vendor: formData.get('is_vendor') === 'true',
+  });
+}
+
 /**
- * Adds a customer, or a vendor when the form's `kind` is "vendor"
+ * Adds a party: a customer, a vendor or both
  */
 export async function addCustomerAction(formData: FormData) {
   try {
     await requireUser();
-    const kind = ContactKindSchema.safeParse(formData.get('kind') ?? 'customer');
-    if (!kind.success) return { success: false, error: 'Invalid contact type' };
+    const roles = readRoles(formData);
+    if (!roles.success) return { success: false, error: firstIssue(roles.error) };
     const parsed = readCustomerForm(formData);
     if (!parsed.success) return { success: false, error: firstIssue(parsed.error) };
 
-    const newCustomer = await createCustomer(kind.data, parsed.data);
+    const newCustomer = await createCustomer(roles.data, parsed.data);
 
     revalidatePath('/', 'layout');
     return { success: true, customer: newCustomer };
@@ -37,10 +45,12 @@ export async function addCustomerAction(formData: FormData) {
 export async function updateCustomerAction(id: string, formData: FormData) {
   try {
     await requireUser();
+    const roles = readRoles(formData);
+    if (!roles.success) return { success: false, error: firstIssue(roles.error) };
     const parsed = readCustomerForm(formData);
     if (!parsed.success) return { success: false, error: firstIssue(parsed.error) };
 
-    const customer = await updateCustomer(id, parsed.data);
+    const customer = await updateCustomer(id, { ...parsed.data, ...roles.data });
 
     revalidatePath('/', 'layout');
     return { success: true, customer };

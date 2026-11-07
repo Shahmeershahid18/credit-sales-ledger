@@ -36,14 +36,17 @@ export async function addPaymentAction(formData: FormData) {
 }
 
 /**
- * Sales of one customer with their unpaid amount, for the "For sale" picker
+ * One party's sales (or purchases) with their unpaid amount, for the "For sale" picker
  */
 export async function getCustomerSalesAction(
-  customerId: string
+  customerId: string,
+  kind: string
 ): Promise<{ success: true; sales: SaleOption[] } | { success: false; error: string }> {
   try {
     await requireUser();
-    return { success: true, sales: await getCustomerSaleOptions(customerId) };
+    const side = ContactKindSchema.safeParse(kind);
+    if (!side.success) return { success: false, error: 'Invalid contact type' };
+    return { success: true, sales: await getCustomerSaleOptions(customerId, side.data) };
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to load sales' };
   }

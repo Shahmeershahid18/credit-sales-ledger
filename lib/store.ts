@@ -16,6 +16,10 @@ import {
   MonthlyBreakdownRow,
   MonthlyReport,
   MonthFlow,
+  PartyLedger,
+  PartyLedgerRow,
+  PartySide,
+  PartyStatement,
 } from './types';
 import { createSampleData } from './sample-data';
 import type { ContactKind } from './contacts';
@@ -162,6 +166,8 @@ export function calculateCustomerSummaries(
       advance: Math.max(0, paymentReceived - totalCreditSale),
       next_due_date: nextDueDate,
       status: statusFor(outstanding, overdue),
+      is_customer: c.is_customer,
+      is_vendor: c.is_vendor,
     };
   });
 }
@@ -485,16 +491,20 @@ export function buildMonthlyReport(
   };
 }
 
+/** Payments that moved money: everything except settlement adjustments */
+export function cashPayments<T extends { method: string }>(payments: T[]): T[] {
+  return payments.filter((p) => p.method !== 'adjustment');
+}
+
 /**
- * Sold, received, purchased and paid for each month in `months` (YYYY-MM). An entry
- * counts as a sale or a purchase by its contact's side; entries of unknown
- * contacts and outside the months are ignored.
+ * Sold, received, purchased and paid for each month in `months` (YYYY-MM), by each
+ * entry's side. Adjustments are not money, so they are left out; entries outside
+ * the months are ignored.
  */
 export function buildMonthFlows(
   months: string[],
-  kindByContact: Map<string, ContactKind>,
-  sales: { customer_id: string; sale_date: string; amount: number }[],
-  payments: { customer_id: string; payment_date: string; amount: number }[]
+  sales: { kind: ContactKind; sale_date: string; amount: number }[],
+  payments: { kind: ContactKind; payment_date: string; amount: number; method: string }[]
 ): MonthFlow[] {
   const byMonth = new Map<string, MonthFlow>(
     months.map((month) => [month, { month, sold: 0, received: 0, purchased: 0, paid: 0 }])
@@ -502,18 +512,170 @@ export function buildMonthFlows(
 
   for (const s of sales) {
     const flow = byMonth.get(s.sale_date.slice(0, 7));
-    const kind = kindByContact.get(s.customer_id);
-    if (!flow || !kind) continue;
-    if (kind === 'vendor') flow.purchased += Number(s.amount);
+    if (!flow) continue;
+    if (s.kind === 'vendor') flow.purchased += Number(s.amount);
     else flow.sold += Number(s.amount);
   }
-  for (const p of payments) {
+  for (const p of cashPayments(payments)) {
     const flow = byMonth.get(p.payment_date.slice(0, 7));
-    const kind = kindByContact.get(p.customer_id);
-    if (!flow || !kind) continue;
-    if (kind === 'vendor') flow.paid += Number(p.amount);
+    if (!flow) continue;
+    if (p.kind === 'vendor') flow.paid += Number(p.amount);
     else flow.received += Number(p.amount);
   }
 
   return months.map((m) => byMonth.get(m)!);
+}
+
+// ---------------------------------------------------------------------------
+// One party, one combined ledger
+// ---------------------------------------------------------------------------
+
+const ENTRY_ORDER: Record<PartyLedgerRow['type'], number> = { sale: 0, purchase: 1, received: 2, paid: 3, adjustment: 4 };
+
+function partySide(bills: CreditSale[], payments: Payment[], balances: SaleBalance[]): PartySide {
+  const total = sum(bills, (b) => Number(b.amount));
+  const allPaid = sum(payments, (p) => Number(p.amount));
+  const adjusted = sum(
+    payments.filter((p) => p.method === 'adjustment'),
+    (p) => Number(p.amount)
+  );
+  const outstanding = sum(balances, (b) => b.outstanding);
+  const overdue = sum(
+    balances.filter((b) => b.days_overdue > 0),
+    (b) => b.outstanding
+  );
+  return {
+    total,
+    paid: allPaid - adjusted,
+    adjusted,
+    outstanding,
+    overdue,
+    advance: Math.max(0, allPaid - total),
+    nextDueDate:
+      balances
+        .filter((b) => b.outstanding > 0)
+        .map((b) => b.due_date)
+        .sort()[0] ?? null,
+    status: statusFor(outstanding, overdue),
+  };
+}
+
+/**
+ * A party's sales, purchases and payments in one running ledger. Each side's bills
+ * are still paid oldest first by that side's payments. A settlement's two halves
+ * (received + paid) cancel out, so they show as one adjustment line.
+ */
+export function calculatePartyLedger(
+  partyId: string,
+  sales: CreditSale[],
+  payments: Payment[],
+  today: string = getTodayDateStr()
+): PartyLedger {
+  const bills = sales.filter((s) => s.customer_id === partyId);
+  const pays = payments.filter((p) => p.customer_id === partyId);
+  const side = (kind: ContactKind) => {
+    const b = bills.filter((x) => x.kind === kind);
+    const p = pays.filter((x) => x.kind === kind);
+    const balances = calculateSaleBalances(b, p, today);
+    return { summary: partySide(b, p, balances), balances };
+  };
+  const customer = side('customer');
+  const vendor = side('vendor');
+  const balanceById = new Map([...customer.balances, ...vendor.balances].map((b) => [b.id, b]));
+
+  type Line = Omit<PartyLedgerRow, 'balance'> & { createdAt: string };
+  const lines: Line[] = bills.map((b) => {
+    const bal = balanceById.get(b.id);
+    const amount = Number(b.amount);
+    const isPurchase = b.kind === 'vendor';
+    return {
+      id: b.id,
+      date: b.sale_date,
+      type: isPurchase ? 'purchase' : 'sale',
+      material: b.material,
+      quantity: b.quantity,
+      unit: b.unit,
+      rate: b.rate,
+      amount,
+      debit: isPurchase ? 0 : amount,
+      credit: isPurchase ? amount : 0,
+      credit_days: b.credit_days,
+      due_date: b.due_date,
+      status: !bal ? 'Pending' : bal.outstanding <= 0 ? 'Paid' : bal.days_overdue > 0 ? 'Overdue' : 'Pending',
+      notes: b.notes,
+      createdAt: b.created_at || '',
+    };
+  });
+
+  const settlementsSeen = new Set<string>();
+  for (const p of pays) {
+    const amount = Number(p.amount);
+    if (p.method === 'adjustment') {
+      const key = p.settlement_id || p.id;
+      if (settlementsSeen.has(key)) continue;
+      settlementsSeen.add(key);
+      lines.push({
+        id: key,
+        date: p.payment_date,
+        type: 'adjustment',
+        amount,
+        debit: 0,
+        credit: 0,
+        method: p.method,
+        notes: p.notes,
+        createdAt: p.created_at || '',
+      });
+      continue;
+    }
+    const isPaid = p.kind === 'vendor';
+    const linked = p.sale_id ? balanceById.get(p.sale_id) : undefined;
+    lines.push({
+      id: p.id,
+      date: p.payment_date,
+      type: isPaid ? 'paid' : 'received',
+      amount,
+      debit: isPaid ? amount : 0,
+      credit: isPaid ? 0 : amount,
+      method: p.method,
+      against: linked ? `${linked.material} · ${formatDate(linked.sale_date)}` : undefined,
+      notes: p.notes,
+      createdAt: p.created_at || '',
+    });
+  }
+
+  lines.sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      ENTRY_ORDER[a.type] - ENTRY_ORDER[b.type] ||
+      a.createdAt.localeCompare(b.createdAt) ||
+      a.id.localeCompare(b.id)
+  );
+
+  let balance = 0;
+  const rows: PartyLedgerRow[] = lines.map((line) => {
+    const { createdAt, ...row } = line;
+    void createdAt;
+    balance += row.debit - row.credit;
+    return { ...row, balance };
+  });
+
+  return {
+    rows,
+    customer: customer.summary,
+    vendor: vendor.summary,
+    net: balance,
+    settleable: Math.min(customer.summary.outstanding, vendor.summary.outstanding),
+  };
+}
+
+/**
+ * The ledger lines from `from` to `to` (inclusive), with the balance brought forward
+ */
+export function buildPartyStatement(ledger: PartyLedger, from: string, to: string): PartyStatement {
+  const before = ledger.rows.filter((r) => r.date < from);
+  const rows = ledger.rows.filter((r) => r.date >= from && r.date <= to);
+  const opening = before.length ? before[before.length - 1].balance : 0;
+  const totalDebit = sum(rows, (r) => r.debit);
+  const totalCredit = sum(rows, (r) => r.credit);
+  return { from, to, opening, closing: opening + totalDebit - totalCredit, totalDebit, totalCredit, rows };
 }

@@ -16,6 +16,9 @@ import {
   buildMonthlyReport,
   calculateDueSoon,
   buildMonthFlows,
+  calculatePartyLedger,
+  buildPartyStatement,
+  cashPayments,
 } from './store';
 import { ContactKind, SIDES } from './contacts';
 import {
@@ -33,11 +36,13 @@ import {
   SaleOption,
   MonthlyReport,
   OverdueAgingBucket,
+  PartyLedger,
+  PartyStatement,
   Payment,
   PaymentMethod,
   UserListItem,
 } from './types';
-import { addDays, calculateDueDate, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
+import { addDays, calculateDueDate, formatRs, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
 
 // All DB reads and writes live here. When Supabase is configured they go to the
 // database (views + monthly_report RPC), scoped to one user's ledger; otherwise they
@@ -95,16 +100,30 @@ type SummaryRow = Database['public']['Views']['customer_summary']['Row'];
 type AgingViewRow = Database['public']['Views']['overdue_aging']['Row'];
 
 const num = (v: number | string | null | undefined) => Number(v ?? 0);
+const toKind = (v: string | null | undefined): ContactKind => (v === 'vendor' ? 'vendor' : 'customer');
+const otherSide = (kind: ContactKind): ContactKind => (kind === 'vendor' ? 'customer' : 'vendor');
+
+// A party is listed on a side when it has that role
+const roleColumn = (kind: ContactKind) => (kind === 'vendor' ? 'is_vendor' : 'is_customer');
+const hasRole = (c: Customer, kind: ContactKind) => (kind === 'vendor' ? c.is_vendor : c.is_customer);
 
 function toCustomer(r: CustomerRow): Customer {
-  const kind: ContactKind = r.kind === 'vendor' ? 'vendor' : 'customer';
-  return { id: r.id, kind, name: r.name, phone: r.phone, address: r.address, created_at: r.created_at };
+  return {
+    id: r.id,
+    is_customer: r.is_customer,
+    is_vendor: r.is_vendor,
+    name: r.name,
+    phone: r.phone,
+    address: r.address,
+    created_at: r.created_at,
+  };
 }
 
 function toSale(r: SaleRow): CreditSale {
   return {
     id: r.id,
     customer_id: r.customer_id,
+    kind: toKind(r.kind),
     sale_date: r.sale_date,
     material: r.material,
     quantity: num(r.quantity),
@@ -119,17 +138,19 @@ function toSale(r: SaleRow): CreditSale {
 }
 
 function toPaymentMethod(value: string): PaymentMethod {
-  return value === 'bank' || value === 'cheque' ? value : 'cash';
+  return value === 'bank' || value === 'cheque' || value === 'adjustment' ? value : 'cash';
 }
 
 function toPayment(r: PaymentRow): Payment {
   return {
     id: r.id,
     customer_id: r.customer_id,
+    kind: toKind(r.kind),
     payment_date: r.payment_date,
     amount: num(r.amount),
     method: toPaymentMethod(r.method),
     sale_id: r.sale_id ?? null,
+    settlement_id: r.settlement_id ?? null,
     notes: r.notes,
     created_at: r.created_at,
   };
@@ -149,6 +170,8 @@ function toSummary(r: SummaryRow): CustomerSummary {
     advance: num(r.advance),
     next_due_date: r.next_due_date,
     status,
+    is_customer: r.is_customer ?? r.kind !== 'vendor',
+    is_vendor: r.is_vendor ?? r.kind === 'vendor',
   };
 }
 
@@ -192,10 +215,12 @@ async function fetchAgingRows({ db, ownerId }: Ctx, kind: ContactKind, creditDay
   return rows.map(toAgingRow);
 }
 
-async function fetchCustomers({ db, ownerId }: Ctx, kind: ContactKind): Promise<Customer[]> {
-  const rows = await fetchAll((from, to) =>
-    db.from('customers').select('*').eq('owner_id', ownerId).eq('kind', kind).order('name').order('id').range(from, to)
-  );
+async function fetchCustomers({ db, ownerId }: Ctx, kind?: ContactKind): Promise<Customer[]> {
+  const rows = await fetchAll((from, to) => {
+    let q = db.from('customers').select('*').eq('owner_id', ownerId);
+    if (kind) q = q.eq(roleColumn(kind), true);
+    return q.order('name').order('id').range(from, to);
+  });
   return rows.map(toCustomer);
 }
 
@@ -233,12 +258,10 @@ async function fetchDueSoon({ db, ownerId }: Ctx, kind: ContactKind): Promise<nu
 
 function demoSide(kind: ContactKind) {
   const data = getDemoData();
-  const customers = data.customers.filter((c) => c.kind === kind);
-  const ids = new Set(customers.map((c) => c.id));
   return {
-    customers,
-    sales: data.sales.filter((s) => ids.has(s.customer_id)),
-    payments: data.payments.filter((p) => ids.has(p.customer_id)),
+    customers: data.customers.filter((c) => hasRole(c, kind)),
+    sales: data.sales.filter((s) => s.kind === kind),
+    payments: data.payments.filter((p) => p.kind === kind),
   };
 }
 
@@ -256,9 +279,36 @@ function demoDashboard(kind: ContactKind, month: string): DashboardStats {
     demoSummaries(kind),
     calculateAgingRows(balances),
     month,
-    calculateMonthTotals(month, sales, payments, balances),
+    calculateMonthTotals(month, sales, cashPayments(payments), balances),
     calculateDueSoon(balances)
   );
+}
+
+/**
+ * Each party's balance after netting its two sides: what it was sold minus what it
+ * paid, less what it supplied minus what it was paid. + they owe you, − you owe them.
+ */
+function partyBalances(customers: CustomerSummary[], vendors: CustomerSummary[]): Map<string, number> {
+  const net = new Map<string, number>();
+  const add = (s: CustomerSummary, sign: number) =>
+    net.set(s.customer_id, (net.get(s.customer_id) ?? 0) + sign * (s.total_credit_sale - s.payment_received));
+  customers.forEach((s) => add(s, 1));
+  vendors.forEach((s) => add(s, -1));
+  return net;
+}
+
+function netPosition(customers: CustomerSummary[], vendors: CustomerSummary[]): DashboardData['net'] {
+  const result = { toReceive: 0, toPay: 0, receiveParties: 0, payParties: 0 };
+  for (const n of partyBalances(customers, vendors).values()) {
+    if (n > 0) {
+      result.toReceive += n;
+      result.receiveParties += 1;
+    } else if (n < 0) {
+      result.toPay -= n;
+      result.payParties += 1;
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +323,11 @@ export async function getDashboard(): Promise<DashboardData> {
   const ctx = await getCtx();
 
   if (!ctx) {
-    return { customer: demoDashboard('customer', month), vendor: demoDashboard('vendor', month) };
+    return {
+      customer: demoDashboard('customer', month),
+      vendor: demoDashboard('vendor', month),
+      net: netPosition(demoSummaries('customer'), demoSummaries('vendor')),
+    };
   }
 
   const side = async (kind: ContactKind) => {
@@ -283,16 +337,26 @@ export async function getDashboard(): Promise<DashboardData> {
       fetchMonthTotals(ctx, kind, month),
       fetchDueSoon(ctx, kind),
     ]);
-    return buildDashboardStats(summaries, agingRows, month, totals, dueSoon);
+    return { summaries, stats: buildDashboardStats(summaries, agingRows, month, totals, dueSoon) };
   };
 
   const [customer, vendor] = await Promise.all([side('customer'), side('vendor')]);
-  return { customer, vendor };
+  return { customer: customer.stats, vendor: vendor.stats, net: netPosition(customer.summaries, vendor.summaries) };
 }
 
+/**
+ * Customers or vendors with their totals on that side. Parties that are both also
+ * get their net balance across the two sides.
+ */
 export async function getCustomerCards(kind: ContactKind, search?: string): Promise<CustomerSummary[]> {
   const ctx = await getCtx();
-  const summaries = ctx ? await fetchSummaries(ctx, kind) : demoSummaries(kind);
+  let summaries = ctx ? await fetchSummaries(ctx, kind) : demoSummaries(kind);
+
+  if (summaries.some((s) => s.is_customer && s.is_vendor)) {
+    const others = ctx ? await fetchSummaries(ctx, otherSide(kind)) : demoSummaries(otherSide(kind));
+    const nets = kind === 'customer' ? partyBalances(summaries, others) : partyBalances(others, summaries);
+    summaries = summaries.map((s) => (s.is_customer && s.is_vendor ? { ...s, net: nets.get(s.customer_id) ?? 0 } : s));
+  }
 
   const query = search?.toLowerCase().trim();
   if (!query) return summaries;
@@ -313,47 +377,77 @@ export async function getCustomers(kind: ContactKind): Promise<Customer[]> {
   return fetchCustomers(ctx, kind);
 }
 
-/**
- * A customer or vendor of the open ledger. Returns null when it does not exist or
- * is on the other side (a vendor opened under /customers, for example).
- */
-export async function getCustomerById(id: string, kind: ContactKind): Promise<Customer | null> {
+/** Every party of the open ledger, A–Z, whatever its roles */
+export async function getParties(): Promise<Customer[]> {
   const ctx = await getCtx();
   if (!ctx) {
-    return getDemoData().customers.find((c) => c.id === id && c.kind === kind) || null;
+    return [...getDemoData().customers].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return fetchCustomers(ctx);
+}
+
+/**
+ * A party of the open ledger. With `kind`, only when it has that role (so a party
+ * that is only a vendor is not found under /customers); without, any party.
+ */
+export async function getCustomerById(id: string, kind?: ContactKind): Promise<Customer | null> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    return getDemoData().customers.find((c) => c.id === id && (!kind || hasRole(c, kind))) || null;
   }
 
   if (!UUID_RE.test(id)) return null;
   const { db, ownerId } = ctx;
-  const { data, error } = await db
-    .from('customers')
-    .select('*')
-    .eq('id', id)
-    .eq('owner_id', ownerId)
-    .eq('kind', kind)
-    .maybeSingle();
+  let q = db.from('customers').select('*').eq('id', id).eq('owner_id', ownerId);
+  if (kind) q = q.eq(roleColumn(kind), true);
+  const { data, error } = await q.maybeSingle();
   if (error) throw schemaError(error);
   return data ? toCustomer(data) : null;
 }
 
-export async function getLedger(customerId: string): Promise<CustomerLedger> {
-  const ctx = await getCtx();
-  if (!ctx) {
-    const { sales, payments } = getDemoData();
-    return calculateCustomerLedger(customerId, sales, payments);
-  }
-
-  if (!UUID_RE.test(customerId)) return calculateCustomerLedger(customerId, [], [], getTodayDateStr());
-  const { db, ownerId } = ctx;
+/** All bills and payments of one party, both sides */
+async function fetchPartyEntries({ db, ownerId }: Ctx, partyId: string) {
   const [sales, payments] = await Promise.all([
     fetchAll((from, to) =>
-      db.from('credit_sales').select('*').eq('owner_id', ownerId).eq('customer_id', customerId).order('sale_date').order('id').range(from, to)
+      db.from('credit_sales').select('*').eq('owner_id', ownerId).eq('customer_id', partyId).order('sale_date').order('id').range(from, to)
     ),
     fetchAll((from, to) =>
-      db.from('payments').select('*').eq('owner_id', ownerId).eq('customer_id', customerId).order('payment_date').order('id').range(from, to)
+      db.from('payments').select('*').eq('owner_id', ownerId).eq('customer_id', partyId).order('payment_date').order('id').range(from, to)
     ),
   ]);
-  return calculateCustomerLedger(customerId, sales.map(toSale), payments.map(toPayment), getTodayDateStr());
+  return { sales: sales.map(toSale), payments: payments.map(toPayment) };
+}
+
+/** One side of a party's account: its sales and payments received, or its purchases and payments made */
+export async function getLedger(customerId: string, kind: ContactKind): Promise<CustomerLedger> {
+  const ctx = await getCtx();
+  const entries = !ctx
+    ? getDemoData()
+    : UUID_RE.test(customerId)
+    ? await fetchPartyEntries(ctx, customerId)
+    : { sales: [], payments: [] };
+  return calculateCustomerLedger(
+    customerId,
+    entries.sales.filter((s) => s.kind === kind),
+    entries.payments.filter((p) => p.kind === kind),
+    getTodayDateStr()
+  );
+}
+
+/** A party's combined ledger: both sides in one running balance */
+export async function getPartyLedger(partyId: string): Promise<PartyLedger> {
+  const ctx = await getCtx();
+  const entries = !ctx
+    ? getDemoData()
+    : UUID_RE.test(partyId)
+    ? await fetchPartyEntries(ctx, partyId)
+    : { sales: [], payments: [] };
+  return calculatePartyLedger(partyId, entries.sales, entries.payments, getTodayDateStr());
+}
+
+/** A party's statement from `from` to `to` (YYYY-MM-DD, inclusive) with the opening balance */
+export async function getPartyStatement(partyId: string, from: string, to: string): Promise<PartyStatement> {
+  return buildPartyStatement(await getPartyLedger(partyId), from, to);
 }
 
 export async function getOverdue(kind: ContactKind, creditDays?: number): Promise<OverdueAgingBucket[]> {
@@ -379,19 +473,18 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
   const ctx = await getCtx();
 
   if (!ctx) {
-    const { customers, sales, payments } = getDemoData();
-    return buildMonthFlows(months, new Map(customers.map((c) => [c.id, c.kind])), sales, payments);
+    const { sales, payments } = getDemoData();
+    return buildMonthFlows(months, sales, payments);
   }
 
   const { db, ownerId } = ctx;
   const start = `${from}-01`;
   const end = nextMonthStart(to);
-  const [contacts, sales, payments] = await Promise.all([
-    fetchAll((a, b) => db.from('customers').select('id, kind').eq('owner_id', ownerId).order('id').range(a, b)),
+  const [sales, payments] = await Promise.all([
     fetchAll((a, b) =>
       db
         .from('credit_sales')
-        .select('id, customer_id, sale_date, amount')
+        .select('id, kind, sale_date, amount')
         .eq('owner_id', ownerId)
         .gte('sale_date', start)
         .lt('sale_date', end)
@@ -401,7 +494,7 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
     fetchAll((a, b) =>
       db
         .from('payments')
-        .select('id, customer_id, payment_date, amount')
+        .select('id, kind, payment_date, amount, method')
         .eq('owner_id', ownerId)
         .gte('payment_date', start)
         .lt('payment_date', end)
@@ -410,32 +503,40 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
     ),
   ]);
 
-  const kinds = new Map(contacts.map((c) => [c.id, (c.kind === 'vendor' ? 'vendor' : 'customer') as ContactKind]));
   return buildMonthFlows(
     months,
-    kinds,
-    sales.map((x) => ({ customer_id: x.customer_id, sale_date: x.sale_date, amount: num(x.amount) })),
-    payments.map((x) => ({ customer_id: x.customer_id, payment_date: x.payment_date, amount: num(x.amount) }))
+    sales.map((x) => ({ kind: toKind(x.kind), sale_date: x.sale_date, amount: num(x.amount) })),
+    payments.map((x) => ({ kind: toKind(x.kind), payment_date: x.payment_date, amount: num(x.amount), method: x.method }))
   );
 }
 
 /**
- * Entries made or falling due in [start, end), and payments made in it, for the
- * whole ledger. The report breakdown keeps only those of one side's contacts.
+ * One side's bills made or falling due in [start, end), and the money received or
+ * paid in it (settlement adjustments are not money, so they are left out)
  */
-async function fetchPeriodRows({ db, ownerId }: Ctx, start: string, end: string) {
+async function fetchPeriodRows({ db, ownerId }: Ctx, kind: ContactKind, start: string, end: string) {
   const [soldOrDue, payments] = await Promise.all([
     fetchAll((from, to) =>
       db
         .from('credit_sales')
         .select('*')
         .eq('owner_id', ownerId)
+        .eq('kind', kind)
         .or(`and(sale_date.gte.${start},sale_date.lt.${end}),and(due_date.gte.${start},due_date.lt.${end})`)
         .order('id')
         .range(from, to)
     ),
     fetchAll((from, to) =>
-      db.from('payments').select('*').eq('owner_id', ownerId).gte('payment_date', start).lt('payment_date', end).order('id').range(from, to)
+      db
+        .from('payments')
+        .select('*')
+        .eq('owner_id', ownerId)
+        .eq('kind', kind)
+        .neq('method', 'adjustment')
+        .gte('payment_date', start)
+        .lt('payment_date', end)
+        .order('id')
+        .range(from, to)
     ),
   ]);
   return { sales: soldOrDue.map(toSale), payments: payments.map(toPayment) };
@@ -461,14 +562,15 @@ export async function getMonthlyReportData(kind: ContactKind, month: string): Pr
 
   if (!ctx) {
     const { customers, sales, payments } = demoSide(kind);
-    const totals = calculateMonthTotals(month, sales, payments, calculateSaleBalances(sales, payments));
-    return buildMonthlyReport(month, totals, buildMonthlyBreakdown(month, customers, sales, payments));
+    const cash = cashPayments(payments);
+    const totals = calculateMonthTotals(month, sales, cash, calculateSaleBalances(sales, payments));
+    return buildMonthlyReport(month, totals, buildMonthlyBreakdown(month, customers, sales, cash));
   }
 
   const [totals, customers, rows] = await Promise.all([
     fetchMonthTotals(ctx, kind, month),
     fetchCustomers(ctx, kind),
-    fetchPeriodRows(ctx, `${month}-01`, nextMonthStart(month)),
+    fetchPeriodRows(ctx, kind, `${month}-01`, nextMonthStart(month)),
   ]);
 
   return buildMonthlyReport(month, totals, buildMonthlyBreakdown(month, customers, rows.sales, rows.payments));
@@ -483,35 +585,31 @@ export async function getYearlyReportData(kind: ContactKind, year: string): Prom
 
   if (!ctx) {
     const { customers, sales, payments } = demoSide(kind);
-    const totals = calculateMonthTotals(year, sales, payments, calculateSaleBalances(sales, payments));
-    return buildMonthlyReport(year, totals, buildMonthlyBreakdown(year, customers, sales, payments));
+    const cash = cashPayments(payments);
+    const totals = calculateMonthTotals(year, sales, cash, calculateSaleBalances(sales, payments));
+    return buildMonthlyReport(year, totals, buildMonthlyBreakdown(year, customers, sales, cash));
   }
 
   const [customers, rows, balanceRemaining] = await Promise.all([
     fetchCustomers(ctx, kind),
-    fetchPeriodRows(ctx, `${year}-01-01`, `${Number(year) + 1}-01-01`),
+    fetchPeriodRows(ctx, kind, `${year}-01-01`, `${Number(year) + 1}-01-01`),
     fetchBalanceRemaining(ctx, kind),
   ]);
 
-  // Rows are for the whole ledger; count only this side's contacts
-  const ids = new Set(customers.map((c) => c.id));
-  const sales = rows.sales.filter((s) => ids.has(s.customer_id));
-  const payments = rows.payments.filter((p) => ids.has(p.customer_id));
-  const totals = { ...calculateMonthTotals(year, sales, payments, []), balanceRemaining };
-
-  return buildMonthlyReport(year, totals, buildMonthlyBreakdown(year, customers, sales, payments));
+  const totals = { ...calculateMonthTotals(year, rows.sales, rows.payments, []), balanceRemaining };
+  return buildMonthlyReport(year, totals, buildMonthlyBreakdown(year, customers, rows.sales, rows.payments));
 }
 
 /**
  * A contact's sales (or purchases), newest first, with what is still unpaid on each.
  * Powers the "For sale" / "For purchase" picker on the payment form.
  */
-export async function getCustomerSaleOptions(customerId: string): Promise<SaleOption[]> {
+export async function getCustomerSaleOptions(customerId: string, kind: ContactKind): Promise<SaleOption[]> {
   const ctx = await getCtx();
 
   let balances: { id: string; sale_date: string; material: string; quantity: number; unit: string; amount: number; outstanding: number }[];
   if (!ctx) {
-    const { sales, payments } = getDemoData();
+    const { sales, payments } = demoSide(kind);
     balances = calculateSaleBalances(
       sales.filter((s) => s.customer_id === customerId),
       payments.filter((p) => p.customer_id === customerId)
@@ -520,7 +618,15 @@ export async function getCustomerSaleOptions(customerId: string): Promise<SaleOp
     if (!UUID_RE.test(customerId)) return [];
     const { db, ownerId } = ctx;
     const rows = await fetchAll((from, to) =>
-      db.from('sale_balances').select('*').eq('owner_id', ownerId).eq('customer_id', customerId).order('sale_date').order('id').range(from, to)
+      db
+        .from('sale_balances')
+        .select('*')
+        .eq('owner_id', ownerId)
+        .eq('customer_id', customerId)
+        .eq('kind', kind)
+        .order('sale_date')
+        .order('id')
+        .range(from, to)
     );
     balances = rows.map((r) => ({
       id: r.id ?? '',
@@ -553,7 +659,7 @@ export async function getCustomerSaleOptions(customerId: string): Promise<SaleOp
 type MaterialRow = Database['public']['Tables']['materials']['Row'];
 type MaterialInput = { name: string; unit: string; rate: number | null; purchase_rate: number | null };
 
-const LATEST_MIGRATION = 'supabase/migrations/20261031000000_vendors.sql';
+const LATEST_MIGRATION = 'supabase/migrations/20261107000000_parties.sql';
 
 /**
  * True when a PostgREST error means a table or column from a newer migration is missing
@@ -692,39 +798,44 @@ async function rememberMaterial(kind: ContactKind, input: { name: string; unit: 
 // ---------------------------------------------------------------------------
 
 type CustomerInput = { name: string; phone?: string | null; address?: string | null };
+type Roles = { is_customer: boolean; is_vendor: boolean };
 
 function newDemoId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 }
 
 /**
- * Throws unless the contact exists in the open ledger on the given side, so a
- * purchase can never be saved against a customer or a sale against a vendor.
+ * Throws unless the party exists in the open ledger. Recording an entry on a side
+ * the party does not have yet switches that role on (a database trigger does this
+ * in live mode). Returns the demo record in demo mode.
  */
-async function assertContact(ctx: Ctx | null, customerId: string, kind: ContactKind): Promise<void> {
+async function assertParty(ctx: Ctx | null, partyId: string, kind: ContactKind): Promise<Customer | null> {
   const notFound = new Error(`${SIDES[kind].One} not found`);
   if (!ctx) {
-    if (!getDemoData().customers.some((c) => c.id === customerId && c.kind === kind)) throw notFound;
-    return;
+    const party = getDemoData().customers.find((c) => c.id === partyId);
+    if (!party) throw notFound;
+    return party;
   }
-  if (!UUID_RE.test(customerId)) throw notFound;
-  const { data, error } = await ctx.db
-    .from('customers')
-    .select('id')
-    .eq('id', customerId)
-    .eq('owner_id', ctx.ownerId)
-    .eq('kind', kind)
-    .maybeSingle();
+  if (!UUID_RE.test(partyId)) throw notFound;
+  const { data, error } = await ctx.db.from('customers').select('id').eq('id', partyId).eq('owner_id', ctx.ownerId).maybeSingle();
   if (error) throw schemaError(error);
   if (!data) throw notFound;
+  return null;
 }
 
-export async function createCustomer(kind: ContactKind, data: CustomerInput): Promise<Customer> {
-  const values = { kind, name: data.name, phone: data.phone || null, address: data.address || null };
+function addDemoRole(party: Customer | null, kind: ContactKind) {
+  if (!party) return;
+  if (kind === 'vendor') party.is_vendor = true;
+  else party.is_customer = true;
+}
+
+export async function createCustomer(roles: Roles, data: CustomerInput): Promise<Customer> {
+  if (!roles.is_customer && !roles.is_vendor) throw new Error('Choose customer, vendor or both.');
+  const values = { ...roles, name: data.name, phone: data.phone || null, address: data.address || null };
   const ctx = await getCtx();
 
   if (!ctx) {
-    const customer: Customer = { id: newDemoId(kind === 'vendor' ? 'vend' : 'cust'), ...values, created_at: new Date().toISOString() };
+    const customer: Customer = { id: newDemoId(roles.is_customer ? 'cust' : 'vend'), ...values, created_at: new Date().toISOString() };
     getDemoData().customers.push(customer);
     return customer;
   }
@@ -738,14 +849,33 @@ export async function createCustomer(kind: ContactKind, data: CustomerInput): Pr
   return toCustomer(row);
 }
 
-/** Updates name and contact details. A contact's side (customer or vendor) never changes. */
-export async function updateCustomer(id: string, data: CustomerInput): Promise<Customer> {
-  const values = { name: data.name, phone: data.phone || null, address: data.address || null };
+/**
+ * Updates name, contact details and roles. A role that already has entries cannot
+ * be switched off (the database refuses it too).
+ */
+export async function updateCustomer(id: string, data: CustomerInput & Partial<Roles>): Promise<Customer> {
+  const values = {
+    name: data.name,
+    phone: data.phone || null,
+    address: data.address || null,
+    ...(data.is_customer !== undefined ? { is_customer: data.is_customer } : {}),
+    ...(data.is_vendor !== undefined ? { is_vendor: data.is_vendor } : {}),
+  };
+  if (values.is_customer === false && values.is_vendor === false) throw new Error('Choose customer, vendor or both.');
   const ctx = await getCtx();
 
   if (!ctx) {
-    const customer = getDemoData().customers.find((c) => c.id === id);
+    const store = getDemoData();
+    const customer = store.customers.find((c) => c.id === id);
     if (!customer) throw new Error('Not found');
+    const used = (kind: ContactKind) =>
+      store.sales.some((s) => s.customer_id === id && s.kind === kind) || store.payments.some((p) => p.customer_id === id && p.kind === kind);
+    if (customer.is_customer && values.is_customer === false && used('customer')) {
+      throw new Error('This party has sales or payments received, so it must stay a customer.');
+    }
+    if (customer.is_vendor && values.is_vendor === false && used('vendor')) {
+      throw new Error('This party has purchases or payments made, so it must stay a vendor.');
+    }
     Object.assign(customer, values);
     return customer;
   }
@@ -764,7 +894,7 @@ export async function updateCustomer(id: string, data: CustomerInput): Promise<C
 }
 
 /**
- * Saves a credit sale (customer) or a credit purchase (vendor)
+ * Saves a credit sale (kind 'customer') or a credit purchase (kind 'vendor')
  */
 export async function createCreditSale(
   kind: ContactKind,
@@ -781,6 +911,7 @@ export async function createCreditSale(
 ): Promise<CreditSale> {
   const values = {
     customer_id: data.customer_id,
+    kind,
     sale_date: data.sale_date,
     material: data.material,
     quantity: data.quantity,
@@ -790,10 +921,11 @@ export async function createCreditSale(
     notes: data.notes || null,
   };
   const ctx = await getCtx();
-  await assertContact(ctx, data.customer_id, kind);
+  const party = await assertParty(ctx, data.customer_id, kind);
   let sale: CreditSale;
 
   if (!ctx) {
+    addDemoRole(party, kind);
     sale = {
       id: newDemoId(kind === 'vendor' ? 'pur' : 'sale'),
       ...values,
@@ -819,7 +951,7 @@ export async function createCreditSale(
 }
 
 /**
- * Saves a payment received (customer) or a payment made (vendor)
+ * Saves a payment received (kind 'customer') or a payment made (kind 'vendor')
  */
 export async function createPayment(
   kind: ContactKind,
@@ -834,8 +966,10 @@ export async function createPayment(
 ): Promise<Payment> {
   const terms = SIDES[kind];
   const wrongEntry = `The selected ${terms.entry} does not belong to this ${terms.one}.`;
+  if (data.method === 'adjustment') throw new Error('Use Adjust on the party page to set purchases off against sales.');
   const values = {
     customer_id: data.customer_id,
+    kind,
     payment_date: data.payment_date,
     amount: data.amount,
     method: data.method,
@@ -843,14 +977,15 @@ export async function createPayment(
     ...(data.sale_id ? { sale_id: data.sale_id } : {}),
   };
   const ctx = await getCtx();
-  await assertContact(ctx, data.customer_id, kind);
+  const party = await assertParty(ctx, data.customer_id, kind);
 
   if (!ctx) {
     const store = getDemoData();
-    if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id)) {
+    if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id && s.kind === kind)) {
       throw new Error(wrongEntry);
     }
-    const payment: Payment = { id: newDemoId('pmt'), ...values, created_at: new Date().toISOString() };
+    addDemoRole(party, kind);
+    const payment: Payment = { id: newDemoId(kind === 'vendor' ? 'vpm' : 'pmt'), ...values, created_at: new Date().toISOString() };
     store.payments.push(payment);
     return payment;
   }
@@ -865,6 +1000,75 @@ export async function createPayment(
     throw schemaError(error);
   }
   return toPayment(row);
+}
+
+/**
+ * Sets `amount` of a party's purchases off against its sales: one adjustment on each
+ * side, clearing the oldest unpaid bills on both. The party must be both a customer
+ * and a vendor, and `amount` at most the smaller side's unpaid bills.
+ */
+export async function settleParty(partyId: string, amount: number, date: string, notes?: string | null): Promise<void> {
+  const party = await getCustomerById(partyId);
+  if (!party) throw new Error('Party not found');
+  if (!party.is_customer || !party.is_vendor) throw new Error('Only a party that is both a customer and a vendor can be settled.');
+  // Checked here for a readable message; the database checks it again
+  const { settleable } = await getPartyLedger(partyId);
+  if (amount > settleable + 0.005) {
+    throw new Error(`At most ${formatRs(settleable)} can be adjusted: the smaller of what they owe and what you owe.`);
+  }
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const store = getDemoData();
+    const settlement_id = newDemoId('set');
+    for (const kind of ['customer', 'vendor'] as const) {
+      store.payments.push({
+        id: newDemoId('adj'),
+        customer_id: partyId,
+        kind,
+        payment_date: date,
+        amount,
+        method: 'adjustment',
+        settlement_id,
+        notes: notes || null,
+        created_at: new Date().toISOString(),
+      });
+    }
+    return;
+  }
+
+  if (!UUID_RE.test(partyId)) throw new Error('Party not found');
+  const { error } = await ctx.db.rpc('settle_party', { p_party: partyId, p_amount: amount, p_date: date, p_notes: notes || null });
+  if (error) throw schemaError(error);
+}
+
+/**
+ * Moves every entry of `mergeId` to `keepId`, combines their roles and missing contact
+ * details, and deletes `mergeId`. For a customer and a vendor entered separately
+ * that are the same business.
+ */
+export async function mergeParties(keepId: string, mergeId: string): Promise<void> {
+  if (keepId === mergeId) throw new Error('Choose a different party to merge.');
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const store = getDemoData();
+    const keep = store.customers.find((c) => c.id === keepId);
+    const other = store.customers.find((c) => c.id === mergeId);
+    if (!keep || !other) throw new Error('Party not found');
+    keep.is_customer ||= other.is_customer;
+    keep.is_vendor ||= other.is_vendor;
+    keep.phone = keep.phone?.trim() ? keep.phone : other.phone;
+    keep.address = keep.address?.trim() ? keep.address : other.address;
+    store.sales.forEach((s) => s.customer_id === mergeId && (s.customer_id = keepId));
+    store.payments.forEach((p) => p.customer_id === mergeId && (p.customer_id = keepId));
+    store.customers.splice(store.customers.indexOf(other), 1);
+    return;
+  }
+
+  if (!UUID_RE.test(keepId) || !UUID_RE.test(mergeId)) throw new Error('Party not found');
+  const { error } = await ctx.db.rpc('merge_parties', { p_keep: keepId, p_merge: mergeId });
+  if (error) throw schemaError(error);
 }
 
 // ---------------------------------------------------------------------------

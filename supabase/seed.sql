@@ -1,7 +1,7 @@
 -- Seed Data for Credit Sale Monitoring System
 -- Optional sample data, added to the first admin's ledger.
 -- Safe to run more than once (fixed ids + on conflict do nothing).
--- Run after all migrations and after creating your first user (uses app_today(), profiles and kind).
+-- Run after all migrations and after creating your first user (uses app_today(), profiles and party roles).
 
 do $$
 begin
@@ -60,10 +60,10 @@ from (values
 join customers c on c.id = v.customer_id::uuid
 on conflict (id) do nothing;
 
--- 4. Vendors, with purchases and payments made (needs the vendors migration)
+-- 4. Vendors, with purchases (kind 'vendor') and payments made
 with owner as (select id from profiles where role = 'admin' order by created_at, id limit 1)
-insert into customers (id, owner_id, kind, name, phone, address, created_at)
-select v.id::uuid, owner.id, 'vendor', v.name, v.phone, v.address, now() - v.age::interval
+insert into customers (id, owner_id, is_customer, is_vendor, name, phone, address, created_at)
+select v.id::uuid, owner.id, false, true, v.name, v.phone, v.address, now() - v.age::interval
 from owner, (values
   ('66666666-6666-6666-6666-666666666666', 'Lucky Cement Depot', '+92 301 5551234', 'Ravi Road, Lahore', '70 days'),
   ('77777777-7777-7777-7777-777777777777', 'Ittefaq Steel Mills', '+92 322 4448899', 'Kot Lakhpat, Lahore', '65 days'),
@@ -71,8 +71,8 @@ from owner, (values
 ) as v(id, name, phone, address, age)
 on conflict (id) do nothing;
 
-insert into credit_sales (id, owner_id, customer_id, sale_date, material, quantity, unit, rate, credit_days, notes)
-select v.id::uuid, c.owner_id, c.id, app_today() - v.days_ago, v.material, v.quantity, v.unit, v.rate, v.credit_days, v.notes
+insert into credit_sales (id, owner_id, customer_id, kind, sale_date, material, quantity, unit, rate, credit_days, notes)
+select v.id::uuid, c.owner_id, c.id, 'vendor', app_today() - v.days_ago, v.material, v.quantity, v.unit, v.rate, v.credit_days, v.notes
 from (values
   -- Lucky Cement: 280,200 bought, 120,000 paid; 15,000 overdue, the rest due within a week
   ('91111111-9999-9999-9999-999999999999', '66666666-6666-6666-6666-666666666666', 50, 'DG Cement Bags', 100, 'bag', 1350, 30, 'Bill #LC-2207'),
@@ -82,14 +82,22 @@ from (values
   -- Indus Sand & Crush: fully paid
   ('94444444-9999-9999-9999-999999999999', '88888888-8888-8888-8888-888888888888', 40, 'Fine River Sand', 6, 'truck', 22000, 15, 'Gate pass 118')
 ) as v(id, customer_id, days_ago, material, quantity, unit, rate, credit_days, notes)
-join customers c on c.id = v.customer_id::uuid and c.kind = 'vendor'
+join customers c on c.id = v.customer_id::uuid
 on conflict (id) do nothing;
 
-insert into payments (id, owner_id, customer_id, payment_date, amount, method, notes)
-select v.id::uuid, c.owner_id, c.id, app_today() - v.days_ago, v.amount, v.method, v.notes
+insert into payments (id, owner_id, customer_id, kind, payment_date, amount, method, notes)
+select v.id::uuid, c.owner_id, c.id, 'vendor', app_today() - v.days_ago, v.amount, v.method, v.notes
 from (values
   ('95555555-9999-9999-9999-999999999999', '66666666-6666-6666-6666-666666666666', 18, 120000, 'bank', 'IBFT to Lucky Cement'),
   ('96666666-9999-9999-9999-999999999999', '88888888-8888-8888-8888-888888888888', 20, 132000, 'cash', 'Paid at yard')
 ) as v(id, customer_id, days_ago, amount, method, notes)
-join customers c on c.id = v.customer_id::uuid and c.kind = 'vendor'
+join customers c on c.id = v.customer_id::uuid
+on conflict (id) do nothing;
+
+-- 5. A party that is both: Ittefaq Steel also buys cement from you (225,000), so its
+--    combined ledger nets that sale against the 276,000 of steel bought from it.
+insert into credit_sales (id, owner_id, customer_id, kind, sale_date, material, quantity, unit, rate, credit_days, notes)
+select '97777777-9999-9999-9999-999999999999'::uuid, c.owner_id, c.id, 'customer', app_today() - 12,
+  'DG Cement Bags', 150, 'bag', 1500, 30, 'Mill boundary wall'
+from customers c where c.id = '77777777-7777-7777-7777-777777777777'
 on conflict (id) do nothing;

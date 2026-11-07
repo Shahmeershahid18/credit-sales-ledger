@@ -66,7 +66,7 @@ export function PaymentForm({ kind, customers, preselectedCustomerId, initialSal
 
     latestRequest.current = id;
     setLoadingSales(true);
-    const result = await getCustomerSalesAction(id);
+    const result = await getCustomerSalesAction(id, kind);
     if (latestRequest.current !== id) return; // a different customer was picked meanwhile
     setLoadingSales(false);
     if (result.success) {

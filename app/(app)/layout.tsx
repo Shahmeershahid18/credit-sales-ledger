@@ -29,7 +29,7 @@ export default async function AppLayout({
   const viewing = auth.mode === 'live' && auth.owner.id !== auth.user.id ? auth.owner : null;
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-zinc-50 print:bg-white text-zinc-900">
       <Navigation
         isDemo={isDemo}
         account={user ? { name: displayName(user), subtitle: isAdmin ? 'Admin' : user.email } : null}
@@ -39,15 +39,15 @@ export default async function AppLayout({
       />
 
       <main className="flex-1 min-w-0">
-        <div className="max-w-6xl mx-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8 pb-24 lg:pb-10">
+        <div className="max-w-6xl mx-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8 pb-24 lg:pb-10 print:p-0 print:max-w-none">
           {isDemo && (
-            <div className="mb-6 px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm flex items-start gap-2">
+            <div className="print:hidden mb-6 px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm flex items-start gap-2">
               <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <p>Demo mode. Sample data only; changes are not saved. Add your Supabase keys to save data.</p>
             </div>
           )}
           {viewing && (
-            <div className="mb-6 px-3.5 py-2.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 text-sm flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="print:hidden mb-6 px-3.5 py-2.5 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 text-sm flex flex-wrap items-center gap-x-3 gap-y-2">
               <Eye className="w-4 h-4 text-sky-600 shrink-0" />
               <p className="flex-1 min-w-[12rem]">
                 You are viewing <span className="font-semibold">{displayName(viewing)}</span>&apos;s ledger. Anything you add

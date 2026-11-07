@@ -1,22 +1,24 @@
 import type { ContactKind } from './contacts';
 
 /**
- * A contact: a customer (you sell to them on credit) or a vendor (you buy from them
- * on credit). For a vendor, CreditSale rows are purchases and Payment rows are
- * payments you made.
+ * A party: a customer (you sell to them on credit), a vendor (you buy from them on
+ * credit), or both. Each entry says which side it is on.
  */
 export type Customer = {
   id: string;
-  kind: ContactKind;
+  is_customer: boolean;
+  is_vendor: boolean;
   name: string;
   phone?: string | null;
   address?: string | null;
   created_at: string;
 };
 
+/** A bill: a credit sale (kind 'customer') or a credit purchase (kind 'vendor') */
 export type CreditSale = {
   id: string;
   customer_id: string;
+  kind: ContactKind;
   sale_date: string; // YYYY-MM-DD
   material: string;
   quantity: number;
@@ -29,15 +31,19 @@ export type CreditSale = {
   created_at: string;
 };
 
-export type PaymentMethod = 'cash' | 'bank' | 'cheque';
+// 'adjustment': purchases set off against sales (a settlement), not money
+export type PaymentMethod = 'cash' | 'bank' | 'cheque' | 'adjustment';
 
+/** A payment received (kind 'customer') or made (kind 'vendor') */
 export type Payment = {
   id: string;
   customer_id: string;
+  kind: ContactKind;
   payment_date: string; // YYYY-MM-DD
   amount: number;
   method: PaymentMethod;
   sale_id?: string | null; // optional: the sale this payment was made against
+  settlement_id?: string | null; // the two halves of one adjustment share it
   notes?: string | null;
   created_at: string;
 };
@@ -87,6 +93,9 @@ export type CustomerSummary = {
   advance: number; // payments received beyond total sales
   next_due_date: string | null;
   status: CustomerStatus;
+  is_customer: boolean;
+  is_vendor: boolean;
+  net?: number; // parties that are both: + they owe you, − you owe them
 };
 
 export type LedgerRow = {
@@ -194,8 +203,73 @@ export type MonthFlow = {
   paid: number; // payments to vendors
 };
 
-/** Both sides of the dashboard: what you will receive and what you have to pay */
-export type DashboardData = Record<ContactKind, DashboardStats>;
+/**
+ * Both sides of the dashboard, plus what you will receive and pay once each party's
+ * sales and purchases are netted against each other
+ */
+export type DashboardData = Record<ContactKind, DashboardStats> & {
+  net: { toReceive: number; toPay: number; receiveParties: number; payParties: number };
+};
+
+// ---------------------------------------------------------------------------
+// One party, one combined ledger
+// ---------------------------------------------------------------------------
+
+export type PartyEntryType = 'sale' | 'purchase' | 'received' | 'paid' | 'adjustment';
+
+/**
+ * One line of a party's combined ledger. Debit: sales and payments you made (they
+ * owe you more). Credit: purchases and payments you received (you owe them more).
+ */
+export type PartyLedgerRow = {
+  id: string;
+  date: string;
+  type: PartyEntryType;
+  material?: string;
+  quantity?: number;
+  unit?: string;
+  rate?: number;
+  amount: number;
+  debit: number;
+  credit: number;
+  balance: number; // after this line: + receivable (Dr), − payable (Cr)
+  credit_days?: number;
+  due_date?: string;
+  status?: 'Paid' | 'Pending' | 'Overdue'; // bills only
+  method?: PaymentMethod;
+  against?: string; // payments: "Material · date" of the linked bill
+  notes?: string | null;
+};
+
+/** Totals of one side of a party's account */
+export type PartySide = {
+  total: number; // sales, or purchases
+  paid: number; // money received, or paid (adjustments not included)
+  adjusted: number; // set off in settlements
+  outstanding: number; // unpaid bills
+  overdue: number;
+  advance: number;
+  nextDueDate: string | null;
+  status: CustomerStatus;
+};
+
+export type PartyLedger = {
+  rows: PartyLedgerRow[]; // chronological
+  customer: PartySide;
+  vendor: PartySide;
+  net: number; // + they owe you (receivable), − you owe them (payable)
+  settleable: number; // most that can be set off: the smaller side's unpaid bills
+};
+
+export type PartyStatement = {
+  from: string;
+  to: string;
+  opening: number; // balance before `from`: + receivable, − payable
+  closing: number;
+  totalDebit: number;
+  totalCredit: number;
+  rows: PartyLedgerRow[];
+};
 
 export type MonthlyBreakdownRow = {
   customerId: string;

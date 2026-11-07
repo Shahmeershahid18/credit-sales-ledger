@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { CustomerSummary } from '@/lib/types';
 import { ContactKind, SIDES } from '@/lib/contacts';
-import { formatRs, formatDate } from '@/lib/format';
+import { balanceLabel, formatRs, formatDate } from '@/lib/format';
 import { StatusBadge } from './StatusBadge';
 import { Phone, Plus, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 
@@ -15,6 +15,7 @@ export function CustomerCard({ kind, customer }: CustomerCardProps) {
   const terms = SIDES[kind];
   const href = `${terms.base}/${customer.customer_id}`;
   const PaymentIcon = kind === 'vendor' ? ArrowUpRight : ArrowDownLeft;
+  const both = customer.is_customer && customer.is_vendor;
   const outstandingColor =
     customer.outstanding > 0 ? (customer.overdue > 0 ? 'text-rose-700' : 'text-amber-700') : 'text-zinc-900';
 
@@ -24,6 +25,11 @@ export function CustomerCard({ kind, customer }: CustomerCardProps) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-semibold text-zinc-900 truncate group-hover:text-emerald-700">{customer.name}</p>
+            {both && (
+              <span className="mt-1 inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-600/20">
+                Also {kind === 'vendor' ? 'customer' : 'vendor'}
+              </span>
+            )}
             {customer.phone && (
               <p className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1">
                 <Phone className="w-3 h-3" />
@@ -57,6 +63,19 @@ export function CustomerCard({ kind, customer }: CustomerCardProps) {
             </dd>
           </div>
         </dl>
+
+        {both && customer.net !== undefined && (
+          <p className="mt-3 pt-3 border-t border-zinc-100 flex items-baseline justify-between gap-2 text-sm">
+            <span className="text-xs text-zinc-500">Net after {kind === 'vendor' ? 'sales' : 'purchases'}</span>
+            <span
+              className={`font-semibold tabular-nums ${
+                Math.round(customer.net) > 0 ? 'text-emerald-700' : Math.round(customer.net) < 0 ? 'text-rose-700' : 'text-zinc-900'
+              }`}
+            >
+              {formatRs(Math.abs(customer.net))} <span className="text-xs font-medium">{balanceLabel(customer.net).toLowerCase()}</span>
+            </span>
+          </p>
+        )}
       </Link>
 
       <div className="px-4 sm:px-5 py-2.5 border-t border-zinc-100 flex items-center justify-end gap-1">
