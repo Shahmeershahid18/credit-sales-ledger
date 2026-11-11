@@ -383,6 +383,32 @@ export function calculateDueSoon(saleBalances: SaleBalance[], today: string = ge
   );
 }
 
+/**
+ * The five largest unpaid balances on one side. `nettedOf` gives, for a party that is
+ * both a customer and a vendor, what it owes on this side after netting its other side
+ * (0 when the balance is on the other side); such a party is then ranked by that amount.
+ */
+export function topBalances(
+  summaries: CustomerSummary[],
+  nettedOf?: (c: CustomerSummary) => number | undefined
+): DashboardStats['topCustomers'] {
+  return summaries
+    .map((c) => {
+      const netted = nettedOf?.(c);
+      return {
+        id: c.customer_id,
+        name: c.name,
+        outstanding: netted ?? c.outstanding,
+        totalSale: c.total_credit_sale,
+        status: c.status,
+        netted: netted !== undefined,
+      };
+    })
+    .filter((c) => c.outstanding > 0)
+    .sort((a, b) => b.outstanding - a.outstanding)
+    .slice(0, 5);
+}
+
 export function buildDashboardStats(
   summaries: CustomerSummary[],
   agingRows: AgingRow[],
@@ -390,17 +416,7 @@ export function buildDashboardStats(
   monthTotals: MonthTotals,
   dueThisWeek: number
 ): DashboardStats {
-  const topCustomers = summaries
-    .filter((c) => c.outstanding > 0)
-    .sort((a, b) => b.outstanding - a.outstanding)
-    .slice(0, 5)
-    .map((c) => ({
-      id: c.customer_id,
-      name: c.name,
-      outstanding: c.outstanding,
-      totalSale: c.total_credit_sale,
-      status: c.status,
-    }));
+  const topCustomers = topBalances(summaries);
 
   return {
     totalCreditSale: sum(summaries, (c) => c.total_credit_sale),

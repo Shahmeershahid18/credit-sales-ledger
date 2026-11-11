@@ -191,6 +191,7 @@ export type DashboardStats = {
     outstanding: number;
     totalSale: number;
     status: CustomerStatus;
+    netted: boolean; // customer and vendor: `outstanding` is the net after the other side
   }[];
 };
 

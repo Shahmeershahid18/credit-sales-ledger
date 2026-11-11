@@ -19,6 +19,7 @@ import {
   calculatePartyLedger,
   buildPartyStatement,
   cashPayments,
+  topBalances,
 } from './store';
 import { ContactKind, SIDES } from './contacts';
 import {
@@ -323,26 +324,35 @@ export async function getDashboard(): Promise<DashboardData> {
   const month = getCurrentMonthStr();
   const ctx = await getCtx();
 
+  let customer: { summaries: CustomerSummary[]; stats: DashboardStats };
+  let vendor: typeof customer;
   if (!ctx) {
-    return {
-      customer: demoDashboard('customer', month),
-      vendor: demoDashboard('vendor', month),
-      net: netPosition(demoSummaries('customer'), demoSummaries('vendor')),
+    customer = { summaries: demoSummaries('customer'), stats: demoDashboard('customer', month) };
+    vendor = { summaries: demoSummaries('vendor'), stats: demoDashboard('vendor', month) };
+  } else {
+    const side = async (kind: ContactKind) => {
+      const [summaries, agingRows, totals, dueSoon] = await Promise.all([
+        fetchSummaries(ctx, kind),
+        fetchAgingRows(ctx, kind),
+        fetchMonthTotals(ctx, kind, month),
+        fetchDueSoon(ctx, kind),
+      ]);
+      return { summaries, stats: buildDashboardStats(summaries, agingRows, month, totals, dueSoon) };
     };
+    [customer, vendor] = await Promise.all([side('customer'), side('vendor')]);
   }
 
-  const side = async (kind: ContactKind) => {
-    const [summaries, agingRows, totals, dueSoon] = await Promise.all([
-      fetchSummaries(ctx, kind),
-      fetchAgingRows(ctx, kind),
-      fetchMonthTotals(ctx, kind, month),
-      fetchDueSoon(ctx, kind),
-    ]);
-    return { summaries, stats: buildDashboardStats(summaries, agingRows, month, totals, dueSoon) };
-  };
+  // A party that is both appears only on the side it owes after netting, with the net amount
+  const nets = partyBalances(customer.summaries, vendor.summaries);
+  const both = (c: CustomerSummary) => c.is_customer && c.is_vendor;
+  const netReceivable = (c: CustomerSummary) => (both(c) ? Math.max(0, nets.get(c.customer_id) ?? 0) : undefined);
+  const netPayable = (c: CustomerSummary) => (both(c) ? Math.max(0, -(nets.get(c.customer_id) ?? 0)) : undefined);
 
-  const [customer, vendor] = await Promise.all([side('customer'), side('vendor')]);
-  return { customer: customer.stats, vendor: vendor.stats, net: netPosition(customer.summaries, vendor.summaries) };
+  return {
+    customer: { ...customer.stats, topCustomers: topBalances(customer.summaries, netReceivable) },
+    vendor: { ...vendor.stats, topCustomers: topBalances(vendor.summaries, netPayable) },
+    net: netPosition(customer.summaries, vendor.summaries),
+  };
 }
 
 /**

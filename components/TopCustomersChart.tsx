@@ -20,9 +20,13 @@ export function TopCustomersChart({ kind, customers }: TopCustomersChartProps) {
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <h2 className="text-sm font-semibold text-zinc-900">{terms.topTitle}</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">Highest unpaid balances</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {customers.some((c) => c.netted)
+              ? `Highest unpaid balances, net of ${kind === 'vendor' ? 'sales' : 'purchases'}`
+              : 'Highest unpaid balances'}
+          </p>
         </div>
-        <Link href={terms.base} className="text-xs font-medium text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
+        <Link href={terms.base} className="shrink-0 whitespace-nowrap text-xs font-medium text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
           View all
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
@@ -46,7 +50,13 @@ export function TopCustomersChart({ kind, customers }: TopCustomersChartProps) {
                     <span className="hidden sm:block">
                       <StatusBadge status={c.status} />
                     </span>
-                    <span className="font-semibold text-zinc-900 tabular-nums">{formatRs(c.outstanding)}</span>
+                    <span
+                      className="font-semibold text-zinc-900 tabular-nums"
+                      title={c.netted ? `Net: ${kind === 'vendor' ? 'sales' : 'purchases'} with this party are subtracted` : undefined}
+                    >
+                      {formatRs(c.outstanding)}
+                      {c.netted && <span className="ml-1 text-[11px] font-medium text-violet-700">net</span>}
+                    </span>
                   </div>
                 </div>
                 <div className="mt-1.5 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
