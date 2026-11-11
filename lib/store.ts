@@ -602,6 +602,7 @@ export function calculatePartyLedger(
       credit_days: b.credit_days,
       due_date: b.due_date,
       status: !bal ? 'Pending' : bal.outstanding <= 0 ? 'Paid' : bal.days_overdue > 0 ? 'Overdue' : 'Pending',
+      linked: pays.filter((p) => p.sale_id === b.id).length,
       notes: b.notes,
       createdAt: b.created_at || '',
     };

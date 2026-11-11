@@ -238,6 +238,7 @@ export type PartyLedgerRow = {
   status?: 'Paid' | 'Pending' | 'Overdue'; // bills only
   method?: PaymentMethod;
   against?: string; // payments: "Material · date" of the linked bill
+  linked?: number; // bills: payments recorded against this bill
   notes?: string | null;
 };
 

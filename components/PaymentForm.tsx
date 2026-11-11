@@ -3,8 +3,8 @@
 import React, { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatDate, formatRs, getTodayDateStr } from '@/lib/format';
-import { addPaymentAction, getCustomerSalesAction } from '@/app/actions/payments';
-import { PaymentMethod, SaleOption } from '@/lib/types';
+import { addPaymentAction, getCustomerSalesAction, updatePaymentAction } from '@/app/actions/payments';
+import { Payment, PaymentMethod, SaleOption } from '@/lib/types';
 import { ContactKind, SIDES } from '@/lib/contacts';
 import { Field, FormError, Segmented, inputClass } from './ui';
 import { FormFooter, NoContactsYet } from './SaleForm';
@@ -16,8 +16,9 @@ interface PaymentFormProps {
   kind: ContactKind; // customer: payment received; vendor: payment made
   customers: PaymentCustomerOption[];
   preselectedCustomerId?: string;
-  initialSales?: SaleOption[]; // sales of the preselected customer
+  initialSales?: SaleOption[]; // sales of the preselected customer, or of the edited payment's
   cancelHref: string;
+  entry?: Payment; // editing this payment
 }
 
 function saleOption(s: SaleOption): SelectOption {
@@ -31,7 +32,7 @@ function saleOption(s: SaleOption): SelectOption {
   };
 }
 
-export function PaymentForm({ kind, customers, preselectedCustomerId, initialSales, cancelHref }: PaymentFormProps) {
+export function PaymentForm({ kind, customers, preselectedCustomerId, initialSales, cancelHref, entry }: PaymentFormProps) {
   const router = useRouter();
   const terms = SIDES[kind];
   const notLinked: SelectOption = {
@@ -42,14 +43,15 @@ export function PaymentForm({ kind, customers, preselectedCustomerId, initialSal
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [customerId, setCustomerId] = useState(preselectedCustomerId || '');
-  const [paymentDate, setPaymentDate] = useState(getTodayDateStr());
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<PaymentMethod>('cash');
-  const [notes, setNotes] = useState('');
-  const [saleId, setSaleId] = useState('');
+  const initialCustomerId = entry?.customer_id ?? (preselectedCustomerId || '');
+  const [customerId, setCustomerId] = useState(initialCustomerId);
+  const [paymentDate, setPaymentDate] = useState(entry?.payment_date ?? getTodayDateStr());
+  const [amount, setAmount] = useState(entry ? String(entry.amount) : '');
+  const [method, setMethod] = useState<PaymentMethod>(entry?.method ?? 'cash');
+  const [notes, setNotes] = useState(entry?.notes ?? '');
+  const [saleId, setSaleId] = useState(entry?.sale_id ?? '');
   const [salesByCustomer, setSalesByCustomer] = useState<Record<string, SaleOption[]>>(
-    preselectedCustomerId && initialSales ? { [preselectedCustomerId]: initialSales } : {}
+    initialCustomerId && initialSales ? { [initialCustomerId]: initialSales } : {}
   );
   const [loadingSales, setLoadingSales] = useState(false);
   const latestRequest = useRef('');
@@ -103,7 +105,7 @@ export function PaymentForm({ kind, customers, preselectedCustomerId, initialSal
     if (saleId) formData.append('sale_id', saleId);
     if (notes.trim()) formData.append('notes', notes);
 
-    const result = await addPaymentAction(formData);
+    const result = entry ? await updatePaymentAction(entry.id, formData) : await addPaymentAction(formData);
 
     if (result.success) {
       router.push(`${terms.base}/${customerId}`);
@@ -147,7 +149,8 @@ export function PaymentForm({ kind, customers, preselectedCustomerId, initialSal
         </Field>
       </div>
 
-      {selected && (
+      {/* While editing, the party's balance already includes this payment, so it is not shown */}
+      {selected && selected.id !== entry?.customer_id && (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-sm">
           <span className="text-zinc-600">
             {terms.balanceLabel} <span className="font-semibold text-zinc-900 tabular-nums whitespace-nowrap">{formatRs(selected.outstanding)}</span>
@@ -243,7 +246,7 @@ export function PaymentForm({ kind, customers, preselectedCustomerId, initialSal
         cancelHref={cancelHref}
         isSubmitting={isSubmitting}
         variant="success"
-        label={`Save payment · ${formatRs(parsedAmount)}`}
+        label={entry ? `Save changes · ${formatRs(parsedAmount)}` : `Save payment · ${formatRs(parsedAmount)}`}
       />
     </form>
   );

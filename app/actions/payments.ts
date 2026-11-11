@@ -2,9 +2,24 @@
 
 import { revalidatePath } from 'next/cache';
 import { ContactKindSchema, PaymentSchema, firstIssue } from '@/lib/validators';
-import { createPayment, getCustomerSaleOptions } from '@/lib/queries';
+import { createPayment, getCustomerSaleOptions, updatePayment } from '@/lib/queries';
 import { requireUser } from '@/lib/auth';
 import { SaleOption } from '@/lib/types';
+
+function parsePayment(formData: FormData) {
+  const kind = ContactKindSchema.safeParse(formData.get('kind') ?? 'customer');
+  if (!kind.success) return { error: 'Invalid contact type' } as const;
+  const parsed = PaymentSchema.safeParse({
+    customer_id: formData.get('customer_id') ?? '',
+    payment_date: formData.get('payment_date') ?? '',
+    amount: formData.get('amount'),
+    method: formData.get('method') || 'cash',
+    sale_id: formData.get('sale_id'),
+    notes: formData.get('notes'),
+  });
+  if (!parsed.success) return { error: firstIssue(parsed.error) } as const;
+  return { kind: kind.data, data: parsed.data } as const;
+}
 
 /**
  * Records a payment received, or a payment made when the form's `kind` is "vendor"
@@ -12,25 +27,35 @@ import { SaleOption } from '@/lib/types';
 export async function addPaymentAction(formData: FormData) {
   try {
     await requireUser();
-    const kind = ContactKindSchema.safeParse(formData.get('kind') ?? 'customer');
-    if (!kind.success) return { success: false, error: 'Invalid contact type' };
-    const parsed = PaymentSchema.safeParse({
-      customer_id: formData.get('customer_id') ?? '',
-      payment_date: formData.get('payment_date') ?? '',
-      amount: formData.get('amount'),
-      method: formData.get('method') || 'cash',
-      sale_id: formData.get('sale_id'),
-      notes: formData.get('notes'),
-    });
-    if (!parsed.success) return { success: false, error: firstIssue(parsed.error) };
+    const input = parsePayment(formData);
+    if ('error' in input) return { success: false, error: input.error };
 
-    const newPayment = await createPayment(kind.data, parsed.data);
+    const newPayment = await createPayment(input.kind, input.data);
 
     revalidatePath('/', 'layout');
 
     return { success: true, payment: newPayment };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to record payment';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Corrects a payment received or made
+ */
+export async function updatePaymentAction(id: string, formData: FormData) {
+  try {
+    await requireUser();
+    const input = parsePayment(formData);
+    if ('error' in input) return { success: false, error: input.error };
+
+    const payment = await updatePayment(input.kind, id, input.data);
+
+    revalidatePath('/', 'layout');
+    return { success: true, payment };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to save payment';
     return { success: false, error: message };
   }
 }

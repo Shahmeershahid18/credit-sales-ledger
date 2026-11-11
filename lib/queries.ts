@@ -36,6 +36,7 @@ import {
   SaleOption,
   MonthlyReport,
   OverdueAgingBucket,
+  PartyEntryType,
   PartyLedger,
   PartyStatement,
   Payment,
@@ -450,6 +451,44 @@ export async function getPartyStatement(partyId: string, from: string, to: strin
   return buildPartyStatement(await getPartyLedger(partyId), from, to);
 }
 
+/** One sale (kind 'customer') or purchase (kind 'vendor') of a party, for its edit page */
+export async function getCreditSaleById(kind: ContactKind, partyId: string, id: string): Promise<CreditSale | null> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    return getDemoData().sales.find((s) => s.id === id && s.customer_id === partyId && s.kind === kind) ?? null;
+  }
+  if (!UUID_RE.test(id) || !UUID_RE.test(partyId)) return null;
+  const { data, error } = await ctx.db
+    .from('credit_sales')
+    .select('*')
+    .eq('owner_id', ctx.ownerId)
+    .eq('id', id)
+    .eq('customer_id', partyId)
+    .eq('kind', kind)
+    .maybeSingle();
+  if (error) throw schemaError(error);
+  return data ? toSale(data) : null;
+}
+
+/** One payment received (kind 'customer') or made (kind 'vendor') of a party, for its edit page */
+export async function getPaymentById(kind: ContactKind, partyId: string, id: string): Promise<Payment | null> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    return getDemoData().payments.find((p) => p.id === id && p.customer_id === partyId && p.kind === kind) ?? null;
+  }
+  if (!UUID_RE.test(id) || !UUID_RE.test(partyId)) return null;
+  const { data, error } = await ctx.db
+    .from('payments')
+    .select('*')
+    .eq('owner_id', ctx.ownerId)
+    .eq('id', id)
+    .eq('customer_id', partyId)
+    .eq('kind', kind)
+    .maybeSingle();
+  if (error) throw schemaError(error);
+  return data ? toPayment(data) : null;
+}
+
 export async function getOverdue(kind: ContactKind, creditDays?: number): Promise<OverdueAgingBucket[]> {
   const ctx = await getCtx();
 
@@ -602,13 +641,21 @@ export async function getYearlyReportData(kind: ContactKind, year: string): Prom
 
 /**
  * A contact's sales (or purchases), newest first, with what is still unpaid on each.
- * Powers the "For sale" / "For purchase" picker on the payment form.
+ * Powers the "For sale" / "For purchase" picker on the payment form. When a payment
+ * is being edited, `excludePaymentId` leaves it out, so the bill it paid shows as unpaid.
  */
-export async function getCustomerSaleOptions(customerId: string, kind: ContactKind): Promise<SaleOption[]> {
+export async function getCustomerSaleOptions(customerId: string, kind: ContactKind, excludePaymentId?: string): Promise<SaleOption[]> {
   const ctx = await getCtx();
 
   let balances: { id: string; sale_date: string; material: string; quantity: number; unit: string; amount: number; outstanding: number }[];
-  if (!ctx) {
+  if (excludePaymentId) {
+    if (ctx && !UUID_RE.test(customerId)) return [];
+    const entries = ctx ? await fetchPartyEntries(ctx, customerId) : getDemoData();
+    balances = calculateSaleBalances(
+      entries.sales.filter((s) => s.customer_id === customerId && s.kind === kind),
+      entries.payments.filter((p) => p.customer_id === customerId && p.kind === kind && p.id !== excludePaymentId)
+    );
+  } else if (!ctx) {
     const { sales, payments } = demoSide(kind);
     balances = calculateSaleBalances(
       sales.filter((s) => s.customer_id === customerId),
@@ -1000,6 +1047,197 @@ export async function createPayment(
     throw schemaError(error);
   }
   return toPayment(row);
+}
+
+type SaleInput = Parameters<typeof createCreditSale>[1];
+type PaymentInput = Parameters<typeof createPayment>[1];
+
+const ADJUSTMENT_LOCKED = 'An adjustment cannot be edited. Delete it on the party page and use Adjust again.';
+
+/**
+ * Corrects a sale or purchase. Moving it to another party leaves the payments
+ * recorded against it with the party that made them (they become unlinked).
+ */
+export async function updateCreditSale(kind: ContactKind, id: string, data: SaleInput): Promise<CreditSale> {
+  const terms = SIDES[kind];
+  const missing = new Error(`This ${terms.entry} no longer exists.`);
+  const values = {
+    customer_id: data.customer_id,
+    sale_date: data.sale_date,
+    material: data.material,
+    quantity: data.quantity,
+    unit: data.unit,
+    rate: data.rate,
+    credit_days: data.credit_days,
+    notes: data.notes || null,
+  };
+  const ctx = await getCtx();
+  const party = await assertParty(ctx, data.customer_id, kind);
+  let sale: CreditSale;
+
+  if (!ctx) {
+    const store = getDemoData();
+    const existing = store.sales.find((s) => s.id === id && s.kind === kind);
+    if (!existing) throw missing;
+    if (existing.customer_id !== data.customer_id) {
+      store.payments.forEach((p) => p.sale_id === id && (p.sale_id = null));
+      addDemoRole(party, kind);
+    }
+    Object.assign(existing, values, {
+      amount: data.quantity * data.rate,
+      due_date: calculateDueDate(data.sale_date, data.credit_days),
+    });
+    sale = existing;
+  } else {
+    if (!UUID_RE.test(id)) throw missing;
+    const { db, ownerId } = ctx;
+    const { data: current, error: readError } = await db
+      .from('credit_sales')
+      .select('customer_id')
+      .eq('id', id)
+      .eq('owner_id', ownerId)
+      .eq('kind', kind)
+      .maybeSingle();
+    if (readError) throw schemaError(readError);
+    if (!current) throw missing;
+    if (current.customer_id !== data.customer_id) {
+      // Otherwise the linked payments would move with the bill (the foreign key cascades)
+      const { error: unlinkError } = await db.from('payments').update({ sale_id: null }).eq('owner_id', ownerId).eq('sale_id', id);
+      if (unlinkError) throw schemaError(unlinkError);
+    }
+    // amount and due_date are generated columns in the database
+    const { data: row, error } = await db
+      .from('credit_sales')
+      .update(values)
+      .eq('id', id)
+      .eq('owner_id', ownerId)
+      .eq('kind', kind)
+      .select()
+      .maybeSingle();
+    if (error) throw new Error(error.code === '23503' ? `${terms.One} not found` : error.message);
+    if (!row) throw missing;
+    sale = toSale(row);
+  }
+
+  await rememberMaterial(kind, { name: data.material, unit: data.unit, rate: data.rate });
+  return sale;
+}
+
+/** Corrects a payment received or made. Adjustments cannot be edited. */
+export async function updatePayment(kind: ContactKind, id: string, data: PaymentInput): Promise<Payment> {
+  const terms = SIDES[kind];
+  const missing = new Error('This payment no longer exists.');
+  const wrongEntry = `The selected ${terms.entry} does not belong to this ${terms.one}.`;
+  if (data.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+  const values = {
+    customer_id: data.customer_id,
+    payment_date: data.payment_date,
+    amount: data.amount,
+    method: data.method,
+    sale_id: data.sale_id || null,
+    notes: data.notes || null,
+  };
+  const ctx = await getCtx();
+  const party = await assertParty(ctx, data.customer_id, kind);
+
+  if (!ctx) {
+    const store = getDemoData();
+    const existing = store.payments.find((p) => p.id === id && p.kind === kind);
+    if (!existing) throw missing;
+    if (existing.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+    if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id && s.kind === kind)) {
+      throw new Error(wrongEntry);
+    }
+    addDemoRole(party, kind);
+    return Object.assign(existing, values);
+  }
+
+  if (!UUID_RE.test(id)) throw missing;
+  const { db, ownerId } = ctx;
+  const { data: current, error: readError } = await db
+    .from('payments')
+    .select('method')
+    .eq('id', id)
+    .eq('owner_id', ownerId)
+    .eq('kind', kind)
+    .maybeSingle();
+  if (readError) throw schemaError(readError);
+  if (!current) throw missing;
+  if (current.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+
+  const { data: row, error } = await db
+    .from('payments')
+    .update(values)
+    .eq('id', id)
+    .eq('owner_id', ownerId)
+    .eq('kind', kind)
+    .select()
+    .maybeSingle();
+  if (error) {
+    if (error.code === '23503') throw new Error(/sale/.test(error.message) ? wrongEntry : `${terms.One} not found`);
+    throw schemaError(error);
+  }
+  if (!row) throw missing;
+  return toPayment(row);
+}
+
+/**
+ * Deletes one line of a party's ledger for good:
+ * - a sale or purchase (payments recorded against it stay, unlinked, and go to the oldest unpaid bills)
+ * - a payment received or made
+ * - an adjustment, both halves together (`id` is the ledger row id: its settlement id)
+ */
+export async function deleteLedgerEntry(partyId: string, type: PartyEntryType, id: string): Promise<void> {
+  const missing = new Error('This entry no longer exists. Refresh the page.');
+  const kind: ContactKind = type === 'purchase' || type === 'paid' ? 'vendor' : 'customer';
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const store = getDemoData();
+    const remove = <T,>(list: T[], match: (x: T) => boolean) => {
+      const before = list.length;
+      for (let i = list.length - 1; i >= 0; i--) if (match(list[i])) list.splice(i, 1);
+      if (list.length === before) throw missing;
+    };
+    if (type === 'sale' || type === 'purchase') {
+      remove(store.sales, (s) => s.id === id && s.customer_id === partyId && s.kind === kind);
+      store.payments.forEach((p) => p.sale_id === id && (p.sale_id = null));
+    } else if (type === 'adjustment') {
+      remove(store.payments, (p) => p.customer_id === partyId && p.method === 'adjustment' && (p.settlement_id === id || p.id === id));
+    } else {
+      remove(store.payments, (p) => p.id === id && p.customer_id === partyId && p.kind === kind && p.method !== 'adjustment');
+    }
+    return;
+  }
+
+  if (!UUID_RE.test(id) || !UUID_RE.test(partyId)) throw missing;
+  const { db, ownerId } = ctx;
+  let result;
+  if (type === 'sale' || type === 'purchase') {
+    // The database unlinks the payments recorded against it
+    result = await db.from('credit_sales').delete().eq('owner_id', ownerId).eq('customer_id', partyId).eq('kind', kind).eq('id', id).select('id');
+  } else if (type === 'adjustment') {
+    result = await db
+      .from('payments')
+      .delete()
+      .eq('owner_id', ownerId)
+      .eq('customer_id', partyId)
+      .eq('method', 'adjustment')
+      .or(`settlement_id.eq.${id},id.eq.${id}`)
+      .select('id');
+  } else {
+    result = await db
+      .from('payments')
+      .delete()
+      .eq('owner_id', ownerId)
+      .eq('customer_id', partyId)
+      .eq('kind', kind)
+      .eq('id', id)
+      .neq('method', 'adjustment')
+      .select('id');
+  }
+  if (result.error) throw schemaError(result.error);
+  if (!result.data?.length) throw missing;
 }
 
 /**

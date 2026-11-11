@@ -67,6 +67,10 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   (`/customers/[id]/statement/pdf?from=…&to=…`).
 - **Merge.** A business entered twice (once as a customer, once as a vendor) can be merged on the edit
   page; all entries move to the party you keep.
+- **Fixing mistakes.** Every ledger row has **Edit** and **Delete**. Edit opens the original form filled in
+  (the party can be changed too); payments recorded against a sale that is moved or deleted stay with
+  their party, unlinked, and go to its oldest unpaid bills. An adjustment cannot be edited: deleting it
+  removes both halves, and Adjust can then be used again. Deletes are permanent.
 - The dashboard's **To receive** and **To pay** net each party's two sides first, so the same money is
   never counted on both sides.
 - In the database, parties live in `customers` (`is_customer`, `is_vendor`). Each `credit_sales` row is

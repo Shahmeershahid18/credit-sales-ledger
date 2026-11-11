@@ -4,9 +4,9 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatRs, getTodayDateStr, calculateDueDate, formatDate } from '@/lib/format';
-import { addSaleAction } from '@/app/actions/sales';
+import { addSaleAction, updateSaleAction } from '@/app/actions/sales';
 import { Check, Loader2, UserPlus, Plus } from 'lucide-react';
-import { Material } from '@/lib/types';
+import { CreditSale, Material } from '@/lib/types';
 import { ContactKind, SIDES } from '@/lib/contacts';
 import { Field, FormError, Segmented, buttonClass, inputClass } from './ui';
 import { MaterialPills } from './MaterialPills';
@@ -21,29 +21,43 @@ interface SaleFormProps {
   materialsAvailable: boolean;
   preselectedCustomerId?: string;
   cancelHref: string;
+  entry?: CreditSale; // editing this sale or purchase
+  linkedPayments?: number; // payments recorded against `entry`
 }
 
 const BASE_UNITS = ['bag', 'ton', 'kg', 'truck', 'pcs', 'ft', 'sqft', 'litre', 'can'];
 type Term = 30 | 60 | 90 | 'custom';
+const TERMS: Term[] = [30, 60, 90];
 
-export function SaleForm({ kind, customers, materials, materialsAvailable, preselectedCustomerId, cancelHref }: SaleFormProps) {
+export function SaleForm({
+  kind,
+  customers,
+  materials,
+  materialsAvailable,
+  preselectedCustomerId,
+  cancelHref,
+  entry,
+  linkedPayments = 0,
+}: SaleFormProps) {
   const router = useRouter();
   const terms = SIDES[kind];
   const rateOf = (m: Material) => (kind === 'vendor' ? m.purchase_rate : m.rate);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [customerId, setCustomerId] = useState(preselectedCustomerId || '');
-  const [saleDate, setSaleDate] = useState(getTodayDateStr());
-  const [material, setMaterial] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [unit, setUnit] = useState('bag');
-  const [rate, setRate] = useState('');
-  const [term, setTerm] = useState<Term>(30);
-  const [customDays, setCustomDays] = useState('');
-  const [showNotes, setShowNotes] = useState(false);
-  const [notes, setNotes] = useState('');
+  const savedTerm = entry && TERMS.includes(entry.credit_days as Term) ? (entry.credit_days as Term) : entry ? 'custom' : 30;
+  const [customerId, setCustomerId] = useState(entry?.customer_id ?? (preselectedCustomerId || ''));
+  const [saleDate, setSaleDate] = useState(entry?.sale_date ?? getTodayDateStr());
+  const [material, setMaterial] = useState(entry?.material ?? '');
+  const [quantity, setQuantity] = useState(entry ? String(entry.quantity) : '');
+  const [unit, setUnit] = useState(entry?.unit || 'bag');
+  const [rate, setRate] = useState(entry ? String(entry.rate) : '');
+  const [term, setTerm] = useState<Term>(savedTerm);
+  const [customDays, setCustomDays] = useState(savedTerm === 'custom' && entry ? String(entry.credit_days) : '');
+  const [showNotes, setShowNotes] = useState(Boolean(entry?.notes));
+  const [notes, setNotes] = useState(entry?.notes ?? '');
   const [materialList, setMaterialList] = useState(materials);
+  const movedFrom = entry && customerId !== entry.customer_id ? customers.find((c) => c.id === entry.customer_id) : undefined;
 
   const parsedQty = Number(quantity) || 0;
   const parsedRate = Number(rate) || 0;
@@ -103,7 +117,7 @@ export function SaleForm({ kind, customers, materials, materialsAvailable, prese
     formData.append('credit_days', String(creditDays));
     if (notes.trim()) formData.append('notes', notes);
 
-    const result = await addSaleAction(formData);
+    const result = entry ? await updateSaleAction(entry.id, formData) : await addSaleAction(formData);
 
     if (result.success) {
       router.push(`${terms.base}/${customerId}`);
@@ -129,6 +143,12 @@ export function SaleForm({ kind, customers, materials, materialsAvailable, prese
               searchPlaceholder={`Search ${terms.many}…`}
               options={customers.map((c) => ({ value: c.id, label: c.name, description: c.phone ?? undefined }))}
             />
+            {movedFrom && linkedPayments > 0 && (
+              <p className="text-xs text-amber-700">
+                {linkedPayments === 1 ? 'The payment recorded against this ' + terms.entry + ' stays' : `The ${linkedPayments} payments recorded against this ${terms.entry} stay`}{' '}
+                with {movedFrom.name} and {linkedPayments === 1 ? 'goes' : 'go'} to its oldest unpaid {terms.entry}s.
+              </p>
+            )}
           </Field>
         )}
         <Field
@@ -252,7 +272,11 @@ export function SaleForm({ kind, customers, materials, materialsAvailable, prese
         </button>
       )}
 
-      <FormFooter cancelHref={cancelHref} isSubmitting={isSubmitting} label={`Save ${terms.entry} · ${formatRs(amount)}`} />
+      <FormFooter
+        cancelHref={cancelHref}
+        isSubmitting={isSubmitting}
+        label={entry ? `Save changes · ${formatRs(amount)}` : `Save ${terms.entry} · ${formatRs(amount)}`}
+      />
     </form>
   );
 }
