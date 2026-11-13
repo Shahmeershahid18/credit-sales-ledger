@@ -84,6 +84,7 @@ export type Database = {
           credit_days: number;
           due_date: string;
           notes: string | null;
+          is_opening: boolean;
           created_at: string;
         };
         Insert: {
@@ -98,6 +99,7 @@ export type Database = {
           rate: number;
           credit_days?: number;
           notes?: string | null;
+          is_opening?: boolean;
           created_at?: string;
         };
         Update: {
@@ -112,6 +114,7 @@ export type Database = {
           rate?: number;
           credit_days?: number;
           notes?: string | null;
+          is_opening?: boolean;
           created_at?: string;
         };
         Relationships: [
@@ -136,6 +139,7 @@ export type Database = {
           sale_id: string | null;
           settlement_id: string | null;
           notes: string | null;
+          is_opening: boolean;
           created_at: string;
         };
         Insert: {
@@ -149,6 +153,7 @@ export type Database = {
           sale_id?: string | null;
           settlement_id?: string | null;
           notes?: string | null;
+          is_opening?: boolean;
           created_at?: string;
         };
         Update: {
@@ -162,6 +167,7 @@ export type Database = {
           sale_id?: string | null;
           settlement_id?: string | null;
           notes?: string | null;
+          is_opening?: boolean;
           created_at?: string;
         };
         Relationships: [
@@ -280,6 +286,17 @@ export type Database = {
       settle_party: {
         Args: { p_party: string; p_amount: number; p_date: string; p_notes?: string | null };
         Returns: string;
+      };
+      set_opening_balance: {
+        Args: {
+          p_party: string;
+          p_kind: string;
+          p_advance: boolean;
+          p_amount: number;
+          p_date: string;
+          p_credit_days?: number;
+        };
+        Returns: undefined;
       };
       merge_parties: {
         Args: { p_keep: string; p_merge: string };

@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { deleteLedgerEntry } from '@/lib/queries';
 import { requireUser } from '@/lib/auth';
 
-const EntryTypeSchema = z.enum(['sale', 'purchase', 'received', 'paid', 'adjustment']);
+const EntryTypeSchema = z.enum(['opening', 'sale', 'purchase', 'received', 'paid', 'adjustment']);
 
 /**
  * Deletes a sale, purchase, payment or adjustment from a party's ledger

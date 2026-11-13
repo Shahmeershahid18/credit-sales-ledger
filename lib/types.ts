@@ -28,6 +28,7 @@ export type CreditSale = {
   credit_days: number;
   due_date: string; // YYYY-MM-DD
   notes?: string | null;
+  is_opening?: boolean; // the party's opening balance, not a sale or purchase
   created_at: string;
 };
 
@@ -45,6 +46,7 @@ export type Payment = {
   sale_id?: string | null; // optional: the sale this payment was made against
   settlement_id?: string | null; // the two halves of one adjustment share it
   notes?: string | null;
+  is_opening?: boolean; // an opening balance in the party's favour (an advance), not money of that day
   created_at: string;
 };
 
@@ -216,7 +218,15 @@ export type DashboardData = Record<ContactKind, DashboardStats> & {
 // One party, one combined ledger
 // ---------------------------------------------------------------------------
 
-export type PartyEntryType = 'sale' | 'purchase' | 'received' | 'paid' | 'adjustment';
+export type PartyEntryType = 'opening' | 'sale' | 'purchase' | 'received' | 'paid' | 'adjustment';
+
+/** What was owed before the party's first entry in the app */
+export type OpeningBalance = {
+  amount: number;
+  direction: 'receivable' | 'payable'; // they owe you / you owe them
+  date: string; // YYYY-MM-DD
+  due_date: string | null; // opening bills only
+};
 
 /**
  * One line of a party's combined ledger. Debit: sales and payments you made (they

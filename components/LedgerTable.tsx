@@ -24,6 +24,8 @@ const METHOD: Record<string, string> = { cash: 'Cash', bank: 'Bank', cheque: 'Ch
 
 function title(row: PartyLedgerRow) {
   switch (row.type) {
+    case 'opening':
+      return 'Opening balance';
     case 'sale':
     case 'purchase':
       return row.material ?? '';
@@ -38,6 +40,10 @@ function title(row: PartyLedgerRow) {
 
 function subtitle(row: PartyLedgerRow) {
   switch (row.type) {
+    case 'opening':
+      // An opening bill has a status; an advance does not
+      if (!row.status) return row.debit > 0 ? 'Brought forward · advance you paid them' : 'Brought forward · advance they paid you';
+      return row.debit > 0 ? 'Brought forward · they owed you' : 'Brought forward · you owed them';
     case 'sale':
     case 'purchase': {
       const what = row.type === 'sale' ? 'Sale' : 'Purchase';
@@ -53,9 +59,13 @@ function subtitle(row: PartyLedgerRow) {
 
 const isBill = (row: PartyLedgerRow) => row.type === 'sale' || row.type === 'purchase';
 
+const isPayment = (row: PartyLedgerRow) => row.type === 'received' || row.type === 'paid' || row.type === 'adjustment';
+
 /** Where a row is corrected; adjustments cannot be edited, only deleted */
-function editHref(row: PartyLedgerRow, partyId: string): string | null {
+function editHref(row: PartyLedgerRow, partyId: string, kind: ContactKind): string | null {
   switch (row.type) {
+    case 'opening':
+      return `${SIDES[kind].base}/${partyId}/edit#opening`;
     case 'sale':
       return `/customers/${partyId}/sale/${row.id}/edit`;
     case 'purchase':
@@ -72,7 +82,10 @@ function editHref(row: PartyLedgerRow, partyId: string): string | null {
 function deleteQuestion(row: PartyLedgerRow, hasAdjustments: boolean): string {
   const when = formatDate(row.date);
   const lines: string[] = [];
-  if (isBill(row)) {
+  if (row.type === 'opening') {
+    lines.push(`Delete the opening balance of ${formatRs(row.amount)} (as of ${when})?`);
+    if (row.linked) lines.push('Payments recorded against it will stay and go to the oldest unpaid bills.');
+  } else if (isBill(row)) {
     const what = row.type === 'sale' ? 'sale' : 'purchase';
     lines.push(`Delete this ${what} of ${formatRs(row.amount)} (${row.material}, ${when})?`);
     if (row.linked) {
@@ -114,7 +127,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
 
   const term = searchTerm.trim().toLowerCase();
   const filtered = rows.filter((r) => {
-    if (filterType === 'payment' && isBill(r)) return false;
+    if (filterType === 'payment' && !isPayment(r)) return false;
     if ((filterType === 'sale' || filterType === 'purchase') && r.type !== filterType) return false;
     if (!term) return true;
     return [title(r), subtitle(r), r.notes, r.date, formatDate(r.date)].some((v) => v?.toLowerCase().includes(term));
@@ -212,7 +225,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
                   </span>
                 </div>
                 {row.notes && <p className="mt-1.5 text-xs text-zinc-500">{row.notes}</p>}
-                <RowActions row={row} partyId={partyId} busy={deletingId === row.id} onDelete={() => remove(row)} labelled />
+                <RowActions row={row} partyId={partyId} kind={kind} busy={deletingId === row.id} onDelete={() => remove(row)} labelled />
               </li>
             ))}
           </ul>
@@ -240,7 +253,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {visible.map((row) => (
-                  <tr key={row.id} className={`group hover:bg-zinc-50/70 ${row.type === 'adjustment' ? 'bg-sky-50/40' : ''}`}>
+                  <tr key={row.id} className={`group hover:bg-zinc-50/70 ${row.type === 'adjustment' ? 'bg-sky-50/40' : row.type === 'opening' ? 'bg-violet-50/40' : ''}`}>
                     <td className="py-3 px-3 whitespace-nowrap text-zinc-700">{formatDate(row.date)}</td>
                     <td className="py-3 px-3 max-w-[260px]">
                       <p className={`font-medium truncate ${isBill(row) ? 'text-zinc-900' : 'text-zinc-700'}`}>{title(row)}</p>
@@ -266,7 +279,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
                     </td>
                     {/* Stays in view when the table scrolls sideways */}
                     <td className="py-2 pl-1 pr-2 sticky right-0 bg-white group-hover:bg-zinc-50">
-                      <RowActions row={row} partyId={partyId} busy={deletingId === row.id} onDelete={() => remove(row)} />
+                      <RowActions row={row} partyId={partyId} kind={kind} busy={deletingId === row.id} onDelete={() => remove(row)} />
                     </td>
                   </tr>
                 ))}
@@ -288,21 +301,23 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
 function RowActions({
   row,
   partyId,
+  kind,
   busy,
   onDelete,
   labelled = false,
 }: {
   row: PartyLedgerRow;
   partyId: string;
+  kind: ContactKind;
   busy: boolean;
   onDelete: () => void;
   labelled?: boolean; // phones: words next to the icons
 }) {
-  const href = editHref(row, partyId);
+  const href = editHref(row, partyId, kind);
   const base = labelled
     ? 'h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 text-xs font-medium border border-zinc-200'
     : 'w-7 h-7 rounded-md inline-flex items-center justify-center';
-  const what = row.type === 'adjustment' ? 'adjustment' : isBill(row) ? row.type : 'payment';
+  const what = row.type === 'opening' ? 'opening balance' : row.type === 'adjustment' ? 'adjustment' : isBill(row) ? row.type : 'payment';
   return (
     <div className={`flex items-center ${labelled ? 'mt-2.5 gap-1.5' : 'justify-end gap-0.5'}`}>
       {href && (

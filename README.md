@@ -33,7 +33,8 @@ login, and anything you add is lost when the server restarts. A banner in the ap
    5. `supabase/migrations/20261031000000_vendors.sql` (vendors, purchases and bills to pay)
    6. `supabase/migrations/20261107000000_parties.sql` (one party can be a customer and a vendor, with a
       combined ledger, settlement and merge)
-   7. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+   7. `supabase/migrations/20261114000000_opening_balance.sql` (opening balance for a party)
+   8. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
    The service role key is a secret used only on the server; never commit it.
@@ -71,6 +72,12 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   (the party can be changed too); payments recorded against a sale that is moved or deleted stay with
   their party, unlinked, and go to its oldest unpaid bills. An adjustment cannot be edited: deleting it
   removes both halves, and Adjust can then be used again. Deletes are permanent.
+- **Opening balance.** When adding or editing a party, **Add opening balance** records what was owed before
+  you started (amount, *They owe me* / *I owe them*, as-of date and an optional due date). It is the first
+  line of the ledger, is paid off first and goes overdue like a bill, but reports do not count it as a
+  sale, purchase or payment. A balance on a side the party does not have (for example *I owe them* for a
+  customer-only party) is kept as an advance. In the database it is the one `credit_sales` or `payments`
+  row with `is_opening = true`, set by `set_opening_balance()`.
 - The dashboard's **To receive** and **To pay** net each party's two sides first, so the same money is
   never counted on both sides.
 - In the database, parties live in `customers` (`is_customer`, `is_vendor`). Each `credit_sales` row is

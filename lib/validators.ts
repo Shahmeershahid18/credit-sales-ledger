@@ -48,6 +48,19 @@ export const PartyRolesSchema = z
   .object({ is_customer: z.boolean(), is_vendor: z.boolean() })
   .refine((r) => r.is_customer || r.is_vendor, 'Choose customer, vendor or both.');
 
+/** A party's opening balance; an amount of 0 means none */
+export const OpeningBalanceSchema = z
+  .object({
+    amount: z.coerce.number().min(0, 'The opening balance cannot be negative'),
+    direction: z.enum(['receivable', 'payable']),
+    date: dateField,
+    due_date: z.preprocess((v) => (v === '' || v === null || v === undefined ? null : v), dateField.nullable()),
+  })
+  .refine((o) => !o.due_date || o.due_date >= o.date, {
+    message: 'The due date cannot be before the opening balance date',
+    path: ['due_date'],
+  });
+
 export const SettlementSchema = z.object({
   amount: z.coerce.number().positive('The adjustment amount must be greater than 0'),
   date: dateField,

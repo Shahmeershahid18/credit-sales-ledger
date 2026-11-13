@@ -1,5 +1,5 @@
 import React from 'react';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import {
   getCreditSaleById,
   getCustomerById,
@@ -7,6 +7,7 @@ import {
   getCustomerSaleOptions,
   getLedger,
   getMaterials,
+  getOpeningBalance,
   getParties,
   getPartyLedger,
   getPaymentById,
@@ -48,12 +49,13 @@ export async function EditContactView({ kind, id }: { kind: ContactKind; id: str
   if (!contact) notFound();
 
   const href = `${terms.base}/${id}`;
-  const others = (await getParties()).filter((p) => p.id !== id);
+  const [parties, opening] = await Promise.all([getParties(), getOpeningBalance(id)]);
+  const others = parties.filter((p) => p.id !== id);
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <PageHeader title={`Edit ${terms.one}`} description={contact.name} backHref={href} />
       <div className={`${cardClass} p-5 sm:p-6`}>
-        <CustomerForm kind={kind} customer={contact} cancelHref={href} />
+        <CustomerForm kind={kind} customer={contact} opening={opening} cancelHref={href} />
       </div>
       {others.length > 0 && (
         <div className={`${cardClass} p-5 sm:p-6`}>
@@ -116,6 +118,8 @@ export async function EditEntryView({ kind, id, entryId }: { kind: ContactKind; 
   const terms = SIDES[kind];
   const [contact, entry] = await Promise.all([getCustomerById(id, kind), getCreditSaleById(kind, id, entryId)]);
   if (!contact || !entry) notFound();
+  // The opening balance is changed on the party form
+  if (entry.is_opening) redirect(`${terms.base}/${id}/edit#opening`);
 
   const [parties, { materials, available }, ledger] = await Promise.all([getParties(), getMaterials(), getPartyLedger(id)]);
   const href = `${terms.base}/${id}`;
@@ -140,6 +144,7 @@ export async function EditPaymentView({ kind, id, paymentId }: { kind: ContactKi
   const terms = SIDES[kind];
   const [contact, entry] = await Promise.all([getCustomerById(id, kind), getPaymentById(kind, id, paymentId)]);
   if (!contact || !entry || entry.method === 'adjustment') notFound();
+  if (entry.is_opening) redirect(`${terms.base}/${id}/edit#opening`);
 
   const [contacts, sales] = await Promise.all([getCustomerCards(kind), getCustomerSaleOptions(id, kind, paymentId)]);
   const href = `${terms.base}/${id}`;

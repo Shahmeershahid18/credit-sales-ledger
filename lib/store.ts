@@ -454,8 +454,8 @@ export function calculateMonthTotals(
   saleBalances: SaleBalance[]
 ): MonthTotals {
   return {
-    materialSold: sum(sales.filter((s) => inMonth(s.sale_date, month)), (s) => Number(s.amount)),
-    paymentReceived: sum(payments.filter((p) => inMonth(p.payment_date, month)), (p) => Number(p.amount)),
+    materialSold: sum(newBusiness(sales).filter((s) => inMonth(s.sale_date, month)), (s) => Number(s.amount)),
+    paymentReceived: sum(cashPayments(payments).filter((p) => inMonth(p.payment_date, month)), (p) => Number(p.amount)),
     paymentDue: sum(sales.filter((s) => inMonth(s.due_date, month)), (s) => Number(s.amount)),
     balanceRemaining: sum(saleBalances, (s) => s.outstanding),
   };
@@ -474,10 +474,10 @@ export function buildMonthlyBreakdown(
   return customers
     .map((c) => {
       const cSales = sales.filter((s) => s.customer_id === c.id);
-      const sold = sum(cSales.filter((s) => inMonth(s.sale_date, month)), (s) => Number(s.amount));
+      const sold = sum(newBusiness(cSales).filter((s) => inMonth(s.sale_date, month)), (s) => Number(s.amount));
       const due = sum(cSales.filter((s) => inMonth(s.due_date, month)), (s) => Number(s.amount));
       const received = sum(
-        payments.filter((p) => p.customer_id === c.id && inMonth(p.payment_date, month)),
+        cashPayments(payments).filter((p) => p.customer_id === c.id && inMonth(p.payment_date, month)),
         (p) => Number(p.amount)
       );
 
@@ -507,9 +507,14 @@ export function buildMonthlyReport(
   };
 }
 
-/** Payments that moved money: everything except settlement adjustments */
-export function cashPayments<T extends { method: string }>(payments: T[]): T[] {
-  return payments.filter((p) => p.method !== 'adjustment');
+/** Payments that moved money: no settlement adjustments, and no opening balances (advances from before) */
+export function cashPayments<T extends { method: string; is_opening?: boolean }>(payments: T[]): T[] {
+  return payments.filter((p) => p.method !== 'adjustment' && !p.is_opening);
+}
+
+/** Sales or purchases made: opening balances are not new business */
+export function newBusiness<T extends { is_opening?: boolean }>(sales: T[]): T[] {
+  return sales.filter((s) => !s.is_opening);
 }
 
 /**
@@ -519,14 +524,14 @@ export function cashPayments<T extends { method: string }>(payments: T[]): T[] {
  */
 export function buildMonthFlows(
   months: string[],
-  sales: { kind: ContactKind; sale_date: string; amount: number }[],
-  payments: { kind: ContactKind; payment_date: string; amount: number; method: string }[]
+  sales: { kind: ContactKind; sale_date: string; amount: number; is_opening?: boolean }[],
+  payments: { kind: ContactKind; payment_date: string; amount: number; method: string; is_opening?: boolean }[]
 ): MonthFlow[] {
   const byMonth = new Map<string, MonthFlow>(
     months.map((month) => [month, { month, sold: 0, received: 0, purchased: 0, paid: 0 }])
   );
 
-  for (const s of sales) {
+  for (const s of newBusiness(sales)) {
     const flow = byMonth.get(s.sale_date.slice(0, 7));
     if (!flow) continue;
     if (s.kind === 'vendor') flow.purchased += Number(s.amount);
@@ -546,7 +551,7 @@ export function buildMonthFlows(
 // One party, one combined ledger
 // ---------------------------------------------------------------------------
 
-const ENTRY_ORDER: Record<PartyLedgerRow['type'], number> = { sale: 0, purchase: 1, received: 2, paid: 3, adjustment: 4 };
+const ENTRY_ORDER: Record<PartyLedgerRow['type'], number> = { opening: -1, sale: 0, purchase: 1, received: 2, paid: 3, adjustment: 4 };
 
 function partySide(bills: CreditSale[], payments: Payment[], balances: SaleBalance[]): PartySide {
   const total = sum(bills, (b) => Number(b.amount));
@@ -607,7 +612,7 @@ export function calculatePartyLedger(
     return {
       id: b.id,
       date: b.sale_date,
-      type: isPurchase ? 'purchase' : 'sale',
+      type: b.is_opening ? 'opening' : isPurchase ? 'purchase' : 'sale',
       material: b.material,
       quantity: b.quantity,
       unit: b.unit,
@@ -649,7 +654,7 @@ export function calculatePartyLedger(
     lines.push({
       id: p.id,
       date: p.payment_date,
-      type: isPaid ? 'paid' : 'received',
+      type: p.is_opening ? 'opening' : isPaid ? 'paid' : 'received',
       amount,
       debit: isPaid ? amount : 0,
       credit: isPaid ? 0 : amount,

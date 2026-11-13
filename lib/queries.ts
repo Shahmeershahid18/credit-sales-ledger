@@ -37,6 +37,7 @@ import {
   SaleOption,
   MonthlyReport,
   OverdueAgingBucket,
+  OpeningBalance,
   PartyEntryType,
   PartyLedger,
   PartyStatement,
@@ -44,7 +45,7 @@ import {
   PaymentMethod,
   UserListItem,
 } from './types';
-import { addDays, calculateDueDate, formatRs, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
+import { addDays, calculateDueDate, daysBetween, formatRs, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
 
 // All DB reads and writes live here. When Supabase is configured they go to the
 // database (views + monthly_report RPC), scoped to one user's ledger; otherwise they
@@ -135,6 +136,7 @@ function toSale(r: SaleRow): CreditSale {
     credit_days: r.credit_days,
     due_date: r.due_date,
     notes: r.notes,
+    is_opening: r.is_opening ?? false,
     created_at: r.created_at,
   };
 }
@@ -154,6 +156,7 @@ function toPayment(r: PaymentRow): Payment {
     sale_id: r.sale_id ?? null,
     settlement_id: r.settlement_id ?? null,
     notes: r.notes,
+    is_opening: r.is_opening ?? false,
     created_at: r.created_at,
   };
 }
@@ -499,6 +502,50 @@ export async function getPaymentById(kind: ContactKind, partyId: string, id: str
   return data ? toPayment(data) : null;
 }
 
+/**
+ * A party's opening balance, for its edit form. An opening bill on the customer side, or
+ * an advance the party was paid, is receivable; the other two are payable.
+ */
+export async function getOpeningBalance(partyId: string): Promise<OpeningBalance | null> {
+  const ctx = await getCtx();
+  let sales: CreditSale[];
+  let payments: Payment[];
+  if (!ctx) {
+    ({ sales, payments } = getDemoData());
+  } else {
+    if (!UUID_RE.test(partyId)) return null;
+    const { db, ownerId } = ctx;
+    const [s, p] = await Promise.all([
+      db.from('credit_sales').select('*').eq('owner_id', ownerId).eq('customer_id', partyId).eq('is_opening', true),
+      db.from('payments').select('*').eq('owner_id', ownerId).eq('customer_id', partyId).eq('is_opening', true),
+    ]);
+    // Before the opening-balance migration the column does not exist: no opening balance yet
+    if (s.error || p.error) return null;
+    sales = (s.data ?? []).map(toSale);
+    payments = (p.data ?? []).map(toPayment);
+  }
+
+  const bill = sales.find((x) => x.customer_id === partyId && x.is_opening);
+  if (bill) {
+    return {
+      amount: Number(bill.amount),
+      direction: bill.kind === 'customer' ? 'receivable' : 'payable',
+      date: bill.sale_date,
+      due_date: bill.due_date,
+    };
+  }
+  const advance = payments.find((x) => x.customer_id === partyId && x.is_opening);
+  if (advance) {
+    return {
+      amount: Number(advance.amount),
+      direction: advance.kind === 'vendor' ? 'receivable' : 'payable',
+      date: advance.payment_date,
+      due_date: null,
+    };
+  }
+  return null;
+}
+
 export async function getOverdue(kind: ContactKind, creditDays?: number): Promise<OverdueAgingBucket[]> {
   const ctx = await getCtx();
 
@@ -533,7 +580,7 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
     fetchAll((a, b) =>
       db
         .from('credit_sales')
-        .select('id, kind, sale_date, amount')
+        .select('id, kind, sale_date, amount, is_opening')
         .eq('owner_id', ownerId)
         .gte('sale_date', start)
         .lt('sale_date', end)
@@ -543,7 +590,7 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
     fetchAll((a, b) =>
       db
         .from('payments')
-        .select('id, kind, payment_date, amount, method')
+        .select('id, kind, payment_date, amount, method, is_opening')
         .eq('owner_id', ownerId)
         .gte('payment_date', start)
         .lt('payment_date', end)
@@ -554,8 +601,14 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
 
   return buildMonthFlows(
     months,
-    sales.map((x) => ({ kind: toKind(x.kind), sale_date: x.sale_date, amount: num(x.amount) })),
-    payments.map((x) => ({ kind: toKind(x.kind), payment_date: x.payment_date, amount: num(x.amount), method: x.method }))
+    sales.map((x) => ({ kind: toKind(x.kind), sale_date: x.sale_date, amount: num(x.amount), is_opening: x.is_opening })),
+    payments.map((x) => ({
+      kind: toKind(x.kind),
+      payment_date: x.payment_date,
+      amount: num(x.amount),
+      method: x.method,
+      is_opening: x.is_opening,
+    }))
   );
 }
 
@@ -582,6 +635,7 @@ async function fetchPeriodRows({ db, ownerId }: Ctx, kind: ContactKind, start: s
         .eq('owner_id', ownerId)
         .eq('kind', kind)
         .neq('method', 'adjustment')
+        .eq('is_opening', false)
         .gte('payment_date', start)
         .lt('payment_date', end)
         .order('id')
@@ -716,7 +770,7 @@ export async function getCustomerSaleOptions(customerId: string, kind: ContactKi
 type MaterialRow = Database['public']['Tables']['materials']['Row'];
 type MaterialInput = { name: string; unit: string; rate: number | null; purchase_rate: number | null };
 
-const LATEST_MIGRATION = 'supabase/migrations/20261107000000_parties.sql';
+const LATEST_MIGRATION = 'supabase/migrations/20261114000000_opening_balance.sql';
 
 /**
  * True when a PostgREST error means a table or column from a newer migration is missing
@@ -1063,6 +1117,100 @@ type SaleInput = Parameters<typeof createCreditSale>[1];
 type PaymentInput = Parameters<typeof createPayment>[1];
 
 const ADJUSTMENT_LOCKED = 'An adjustment cannot be edited. Delete it on the party page and use Adjust again.';
+const OPENING_LOCKED = "Change the opening balance on the party's Edit page.";
+
+/**
+ * Where an opening balance is stored: a bill on the side that owes, or, when the party
+ * does not have that role, an advance on its other side (so no role is switched on)
+ */
+function openingPlace(direction: OpeningBalance['direction'], roles: Roles): { kind: ContactKind; advance: boolean } {
+  if (direction === 'receivable') return roles.is_customer ? { kind: 'customer', advance: false } : { kind: 'vendor', advance: true };
+  return roles.is_vendor ? { kind: 'vendor', advance: false } : { kind: 'customer', advance: true };
+}
+
+/**
+ * Sets a party's opening balance, replacing any earlier one; an amount of 0 removes it.
+ * `roles` are the party's roles after the save it belongs to.
+ */
+export async function setOpeningBalance(
+  partyId: string,
+  roles: Roles,
+  input: { amount: number; direction: OpeningBalance['direction']; date: string; due_date?: string | null }
+): Promise<void> {
+  const { kind, advance } = openingPlace(input.direction, roles);
+  const creditDays = !advance && input.due_date ? Math.max(0, daysBetween(input.date, input.due_date)) : 0;
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const store = getDemoData();
+    const party = store.customers.find((c) => c.id === partyId);
+    if (!party) throw new Error('Party not found');
+    const now = new Date().toISOString();
+    const keepBill = input.amount > 0 && !advance ? store.sales.find((s) => s.customer_id === partyId && s.is_opening && s.kind === kind) : undefined;
+    const keepAdvance = input.amount > 0 && advance ? store.payments.find((p) => p.customer_id === partyId && p.is_opening && p.kind === kind) : undefined;
+    for (let i = store.sales.length - 1; i >= 0; i--) {
+      const s = store.sales[i];
+      if (s.customer_id === partyId && s.is_opening && s !== keepBill) {
+        store.payments.forEach((p) => p.sale_id === s.id && (p.sale_id = null));
+        store.sales.splice(i, 1);
+      }
+    }
+    for (let i = store.payments.length - 1; i >= 0; i--) {
+      const p = store.payments[i];
+      if (p.customer_id === partyId && p.is_opening && p !== keepAdvance) store.payments.splice(i, 1);
+    }
+    if (input.amount <= 0) return;
+    if (!advance) {
+      const values = {
+        sale_date: input.date,
+        quantity: 1,
+        rate: input.amount,
+        amount: input.amount,
+        credit_days: creditDays,
+        due_date: calculateDueDate(input.date, creditDays),
+      };
+      if (keepBill) Object.assign(keepBill, values);
+      else
+        store.sales.push({
+          id: newDemoId('open'),
+          customer_id: partyId,
+          kind,
+          material: 'Opening balance',
+          unit: '',
+          notes: null,
+          is_opening: true,
+          created_at: now,
+          ...values,
+        });
+    } else if (keepAdvance) {
+      Object.assign(keepAdvance, { payment_date: input.date, amount: input.amount });
+    } else {
+      store.payments.push({
+        id: newDemoId('open'),
+        customer_id: partyId,
+        kind,
+        payment_date: input.date,
+        amount: input.amount,
+        method: 'cash',
+        notes: null,
+        is_opening: true,
+        created_at: now,
+      });
+    }
+    return;
+  }
+
+  if (!UUID_RE.test(partyId)) throw new Error('Party not found');
+  const { error } = await ctx.db.rpc('set_opening_balance', {
+    p_party: partyId,
+    p_kind: kind,
+    p_advance: advance,
+    p_amount: input.amount,
+    p_date: input.date,
+    p_credit_days: creditDays,
+  });
+  if (error) throw schemaError(error);
+}
 
 /**
  * Corrects a sale or purchase. Moving it to another party leaves the payments
@@ -1089,6 +1237,7 @@ export async function updateCreditSale(kind: ContactKind, id: string, data: Sale
     const store = getDemoData();
     const existing = store.sales.find((s) => s.id === id && s.kind === kind);
     if (!existing) throw missing;
+    if (existing.is_opening) throw new Error(OPENING_LOCKED);
     if (existing.customer_id !== data.customer_id) {
       store.payments.forEach((p) => p.sale_id === id && (p.sale_id = null));
       addDemoRole(party, kind);
@@ -1103,13 +1252,14 @@ export async function updateCreditSale(kind: ContactKind, id: string, data: Sale
     const { db, ownerId } = ctx;
     const { data: current, error: readError } = await db
       .from('credit_sales')
-      .select('customer_id')
+      .select('customer_id, is_opening')
       .eq('id', id)
       .eq('owner_id', ownerId)
       .eq('kind', kind)
       .maybeSingle();
     if (readError) throw schemaError(readError);
     if (!current) throw missing;
+    if (current.is_opening) throw new Error(OPENING_LOCKED);
     if (current.customer_id !== data.customer_id) {
       // Otherwise the linked payments would move with the bill (the foreign key cascades)
       const { error: unlinkError } = await db.from('payments').update({ sale_id: null }).eq('owner_id', ownerId).eq('sale_id', id);
@@ -1155,6 +1305,7 @@ export async function updatePayment(kind: ContactKind, id: string, data: Payment
     const existing = store.payments.find((p) => p.id === id && p.kind === kind);
     if (!existing) throw missing;
     if (existing.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+    if (existing.is_opening) throw new Error(OPENING_LOCKED);
     if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id && s.kind === kind)) {
       throw new Error(wrongEntry);
     }
@@ -1166,7 +1317,7 @@ export async function updatePayment(kind: ContactKind, id: string, data: Payment
   const { db, ownerId } = ctx;
   const { data: current, error: readError } = await db
     .from('payments')
-    .select('method')
+    .select('method, is_opening')
     .eq('id', id)
     .eq('owner_id', ownerId)
     .eq('kind', kind)
@@ -1174,6 +1325,7 @@ export async function updatePayment(kind: ContactKind, id: string, data: Payment
   if (readError) throw schemaError(readError);
   if (!current) throw missing;
   if (current.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+  if (current.is_opening) throw new Error(OPENING_LOCKED);
 
   const { data: row, error } = await db
     .from('payments')
@@ -1196,6 +1348,7 @@ export async function updatePayment(kind: ContactKind, id: string, data: Payment
  * - a sale or purchase (payments recorded against it stay, unlinked, and go to the oldest unpaid bills)
  * - a payment received or made
  * - an adjustment, both halves together (`id` is the ledger row id: its settlement id)
+ * - the opening balance (an opening bill or advance)
  */
 export async function deleteLedgerEntry(partyId: string, type: PartyEntryType, id: string): Promise<void> {
   const missing = new Error('This entry no longer exists. Refresh the page.');
@@ -1209,7 +1362,15 @@ export async function deleteLedgerEntry(partyId: string, type: PartyEntryType, i
       for (let i = list.length - 1; i >= 0; i--) if (match(list[i])) list.splice(i, 1);
       if (list.length === before) throw missing;
     };
-    if (type === 'sale' || type === 'purchase') {
+    if (type === 'opening') {
+      const bill = store.sales.find((s) => s.id === id && s.customer_id === partyId && s.is_opening);
+      if (bill) {
+        remove(store.sales, (s) => s === bill);
+        store.payments.forEach((p) => p.sale_id === id && (p.sale_id = null));
+      } else {
+        remove(store.payments, (p) => p.id === id && p.customer_id === partyId && p.is_opening === true);
+      }
+    } else if (type === 'sale' || type === 'purchase') {
       remove(store.sales, (s) => s.id === id && s.customer_id === partyId && s.kind === kind);
       store.payments.forEach((p) => p.sale_id === id && (p.sale_id = null));
     } else if (type === 'adjustment') {
@@ -1223,7 +1384,12 @@ export async function deleteLedgerEntry(partyId: string, type: PartyEntryType, i
   if (!UUID_RE.test(id) || !UUID_RE.test(partyId)) throw missing;
   const { db, ownerId } = ctx;
   let result;
-  if (type === 'sale' || type === 'purchase') {
+  if (type === 'opening') {
+    result = await db.from('credit_sales').delete().eq('owner_id', ownerId).eq('customer_id', partyId).eq('is_opening', true).eq('id', id).select('id');
+    if (!result.error && !result.data?.length) {
+      result = await db.from('payments').delete().eq('owner_id', ownerId).eq('customer_id', partyId).eq('is_opening', true).eq('id', id).select('id');
+    }
+  } else if (type === 'sale' || type === 'purchase') {
     // The database unlinks the payments recorded against it
     result = await db.from('credit_sales').delete().eq('owner_id', ownerId).eq('customer_id', partyId).eq('kind', kind).eq('id', id).select('id');
   } else if (type === 'adjustment') {

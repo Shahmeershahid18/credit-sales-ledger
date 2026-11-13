@@ -36,6 +36,8 @@ const METHOD: Record<string, string> = { cash: 'cash', bank: 'bank', cheque: 'ch
 /** The wording of a ledger line on a statement */
 export function statementDetails(row: PartyLedgerRow): string {
   switch (row.type) {
+    case 'opening':
+      return `Balance brought forward (${row.debit > 0 ? 'owed to you' : 'owed by you'})`;
     case 'sale':
       return `Sale: ${row.material}${row.quantity ? ` (${row.quantity} ${row.unit ?? ''} × ${formatRs(row.rate)})` : ''}`;
     case 'purchase':
