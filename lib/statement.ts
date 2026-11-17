@@ -46,6 +46,9 @@ export function statementDetails(row: PartyLedgerRow): string {
       return `Payment received (${METHOD[row.method ?? 'cash'] ?? 'cash'})${row.against ? ` for ${row.against}` : ''}`;
     case 'paid':
       return `Payment made (${METHOD[row.method ?? 'cash'] ?? 'cash'})${row.against ? ` for ${row.against}` : ''}`;
+    case 'return':
+      // A customer return is a credit, a return to the vendor a debit
+      return `${row.credit > 0 ? 'Goods returned by customer' : 'Goods returned to vendor'}${row.against ? ` (${row.against})` : ''}`;
     case 'adjustment':
       return `Adjustment: ${formatRs(row.amount)} of purchases set off against sales`;
   }

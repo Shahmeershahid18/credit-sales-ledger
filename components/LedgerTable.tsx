@@ -18,7 +18,7 @@ interface LedgerTableProps {
   roles: { customer: boolean; vendor: boolean };
 }
 
-type TypeFilter = 'all' | 'sale' | 'purchase' | 'payment';
+type TypeFilter = 'all' | 'sale' | 'purchase' | 'payment' | 'return';
 
 const METHOD: Record<string, string> = { cash: 'Cash', bank: 'Bank', cheque: 'Cheque' };
 
@@ -33,6 +33,9 @@ function title(row: PartyLedgerRow) {
       return 'Payment received';
     case 'paid':
       return 'Payment made';
+    case 'return':
+      // A customer return is a credit (they owe less), a vendor return a debit (you owe less)
+      return row.credit > 0 ? 'Customer return' : 'Vendor return';
     case 'adjustment':
       return 'Adjustment';
   }
@@ -52,6 +55,8 @@ function subtitle(row: PartyLedgerRow) {
     case 'received':
     case 'paid':
       return [METHOD[row.method ?? 'cash'], row.against ? `for ${row.against}` : ''].filter(Boolean).join(' · ');
+    case 'return':
+      return ['Goods returned', row.against ? `from ${row.against}` : ''].filter(Boolean).join(' · ');
     case 'adjustment':
       return `${formatRs(row.amount)} of purchases set off against sales`;
   }
@@ -74,6 +79,8 @@ function editHref(row: PartyLedgerRow, partyId: string, kind: ContactKind): stri
       return `/customers/${partyId}/payment/${row.id}/edit`;
     case 'paid':
       return `/vendors/${partyId}/payment/${row.id}/edit`;
+    case 'return':
+      return `${row.credit > 0 ? '/customers' : '/vendors'}/${partyId}/return/${row.id}/edit`;
     case 'adjustment':
       return null;
   }
@@ -93,6 +100,9 @@ function deleteQuestion(row: PartyLedgerRow, hasAdjustments: boolean): string {
       lines.push(`${payments} recorded against it will stay and go to the oldest unpaid ${what}s.`);
     }
     if (hasAdjustments) lines.push('If this bill was cleared with Adjust, delete that adjustment too and adjust again.');
+  } else if (row.type === 'return') {
+    lines.push(`Delete this ${row.credit > 0 ? 'customer' : 'vendor'} return of ${formatRs(row.amount)} on ${when}?`);
+    lines.push(`${formatRs(row.amount)} goes back onto ${row.credit > 0 ? 'what they owe you' : 'what you owe them'}.`);
   } else if (row.type === 'adjustment') {
     lines.push(`Delete the adjustment of ${formatRs(row.amount)} on ${when}?`);
     lines.push(`This undoes the settlement: ${formatRs(row.amount)} goes back to both what they owe you and what you owe them.`);
@@ -128,7 +138,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
   const term = searchTerm.trim().toLowerCase();
   const filtered = rows.filter((r) => {
     if (filterType === 'payment' && !isPayment(r)) return false;
-    if ((filterType === 'sale' || filterType === 'purchase') && r.type !== filterType) return false;
+    if ((filterType === 'sale' || filterType === 'purchase' || filterType === 'return') && r.type !== filterType) return false;
     if (!term) return true;
     return [title(r), subtitle(r), r.notes, r.date, formatDate(r.date)].some((v) => v?.toLowerCase().includes(term));
   });
@@ -141,6 +151,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
     ...(roles.customer ? [{ label: 'Sales', value: 'sale' as const }] : []),
     ...(roles.vendor ? [{ label: 'Purchases', value: 'purchase' as const }] : []),
     { label: 'Payments', value: 'payment' },
+    ...(rows.some((r) => r.type === 'return') ? [{ label: 'Returns', value: 'return' as const }] : []),
   ];
 
   if (rows.length === 0) {
@@ -187,7 +198,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
             <span className="hidden sm:inline">{newestFirst ? 'Newest' : 'Oldest'}</span>
           </button>
         </div>
-        <div className={filters.length > 3 ? 'lg:w-96' : 'lg:w-64'}>
+        <div className={filters.length > 4 ? 'lg:w-[30rem]' : filters.length > 3 ? 'lg:w-96' : 'lg:w-64'}>
           <Segmented<TypeFilter> ariaLabel="Transaction type" value={filterType} onChange={setFilterType} options={filters} />
         </div>
       </div>
@@ -253,7 +264,7 @@ export function LedgerTable({ rows, partyId, kind, roles }: LedgerTableProps) {
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {visible.map((row) => (
-                  <tr key={row.id} className={`group hover:bg-zinc-50/70 ${row.type === 'adjustment' ? 'bg-sky-50/40' : row.type === 'opening' ? 'bg-violet-50/40' : ''}`}>
+                  <tr key={row.id} className={`group hover:bg-zinc-50/70 ${row.type === 'adjustment' ? 'bg-sky-50/40' : row.type === 'opening' ? 'bg-violet-50/40' : row.type === 'return' ? 'bg-amber-50/40' : ''}`}>
                     <td className="py-3 px-3 whitespace-nowrap text-zinc-700">{formatDate(row.date)}</td>
                     <td className="py-3 px-3 max-w-[260px]">
                       <p className={`font-medium truncate ${isBill(row) ? 'text-zinc-900' : 'text-zinc-700'}`}>{title(row)}</p>
@@ -317,7 +328,8 @@ function RowActions({
   const base = labelled
     ? 'h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 text-xs font-medium border border-zinc-200'
     : 'w-7 h-7 rounded-md inline-flex items-center justify-center';
-  const what = row.type === 'opening' ? 'opening balance' : row.type === 'adjustment' ? 'adjustment' : isBill(row) ? row.type : 'payment';
+  const what =
+    row.type === 'opening' ? 'opening balance' : row.type === 'adjustment' || row.type === 'return' ? row.type : isBill(row) ? row.type : 'payment';
   return (
     <div className={`flex items-center ${labelled ? 'mt-2.5 gap-1.5' : 'justify-end gap-0.5'}`}>
       {href && (

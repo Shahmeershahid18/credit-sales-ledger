@@ -33,7 +33,8 @@ export type CreditSale = {
 };
 
 // 'adjustment': purchases set off against sales (a settlement), not money
-export type PaymentMethod = 'cash' | 'bank' | 'cheque' | 'adjustment';
+// 'return': goods returned (by a customer, or to a vendor), not money
+export type PaymentMethod = 'cash' | 'bank' | 'cheque' | 'adjustment' | 'return';
 
 /** A payment received (kind 'customer') or made (kind 'vendor') */
 export type Payment = {
@@ -89,10 +90,11 @@ export type CustomerSummary = {
   phone?: string | null;
   address?: string | null;
   total_credit_sale: number;
-  payment_received: number; // all payments received from the customer
+  payment_received: number; // money received from the customer (returns not included)
+  returned: number; // goods returned: lowers the balance like a payment, but is not money
   outstanding: number; // unpaid amount of sales (FIFO)
   overdue: number; // unpaid amount of sales past their due date
-  advance: number; // payments received beyond total sales
+  advance: number; // payments and returns beyond total sales
   next_due_date: string | null;
   status: CustomerStatus;
   is_customer: boolean;
@@ -206,6 +208,17 @@ export type MonthFlow = {
   paid: number; // payments to vendors
 };
 
+/** One customer return or vendor return, for the returns report */
+export type ReturnEntry = {
+  id: string;
+  partyId: string;
+  partyName: string;
+  date: string; // YYYY-MM-DD
+  amount: number;
+  reason: string;
+  against: string | null; // "Material · date" of the bill it was recorded against
+};
+
 /** Quantity of one material (in one unit) moved per month, in total and per party */
 export type QuantityMaterial = {
   key: string; // material + unit, case-insensitive
@@ -235,7 +248,7 @@ export type DashboardData = Record<ContactKind, DashboardStats> & {
 // One party, one combined ledger
 // ---------------------------------------------------------------------------
 
-export type PartyEntryType = 'opening' | 'sale' | 'purchase' | 'received' | 'paid' | 'adjustment';
+export type PartyEntryType = 'opening' | 'sale' | 'purchase' | 'return' | 'received' | 'paid' | 'adjustment';
 
 /** What was owed before the party's first entry in the app */
 export type OpeningBalance = {
@@ -273,8 +286,9 @@ export type PartyLedgerRow = {
 /** Totals of one side of a party's account */
 export type PartySide = {
   total: number; // sales, or purchases
-  paid: number; // money received, or paid (adjustments not included)
+  paid: number; // money received, or paid (adjustments and returns not included)
   adjusted: number; // set off in settlements
+  returned: number; // goods returned by the customer, or to the vendor
   outstanding: number; // unpaid bills
   overdue: number;
   advance: number;

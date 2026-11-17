@@ -141,10 +141,13 @@ export function calculateCustomerSummaries(
   return customers.map((c) => {
     const custSales = saleBalances.filter((s) => s.customer_id === c.id);
     const totalCreditSale = sum(custSales, (s) => Number(s.amount));
-    const paymentReceived = sum(
-      payments.filter((p) => p.customer_id === c.id),
+    const custPayments = payments.filter((p) => p.customer_id === c.id);
+    const cleared = sum(custPayments, (p) => Number(p.amount));
+    const returned = sum(
+      custPayments.filter((p) => p.method === 'return'),
       (p) => Number(p.amount)
     );
+    const paymentReceived = cleared - returned;
     const outstanding = sum(custSales, (s) => s.outstanding);
     const overdue = sum(
       custSales.filter((s) => s.days_overdue > 0),
@@ -163,9 +166,10 @@ export function calculateCustomerSummaries(
       address: c.address,
       total_credit_sale: totalCreditSale,
       payment_received: paymentReceived,
+      returned,
       outstanding,
       overdue,
-      advance: Math.max(0, paymentReceived - totalCreditSale),
+      advance: Math.max(0, cleared - totalCreditSale),
       next_due_date: nextDueDate,
       status: statusFor(outstanding, overdue),
       is_customer: c.is_customer,
@@ -509,9 +513,9 @@ export function buildMonthlyReport(
   };
 }
 
-/** Payments that moved money: no settlement adjustments, and no opening balances (advances from before) */
+/** Payments that moved money: no settlement adjustments, no returns, and no opening balances (advances from before) */
 export function cashPayments<T extends { method: string; is_opening?: boolean }>(payments: T[]): T[] {
-  return payments.filter((p) => p.method !== 'adjustment' && !p.is_opening);
+  return payments.filter((p) => p.method !== 'adjustment' && p.method !== 'return' && !p.is_opening);
 }
 
 /** Sales or purchases made: opening balances are not new business */
@@ -608,13 +612,17 @@ export function buildQuantityHistory(
 // One party, one combined ledger
 // ---------------------------------------------------------------------------
 
-const ENTRY_ORDER: Record<PartyLedgerRow['type'], number> = { opening: -1, sale: 0, purchase: 1, received: 2, paid: 3, adjustment: 4 };
+const ENTRY_ORDER: Record<PartyLedgerRow['type'], number> = { opening: -1, sale: 0, purchase: 1, return: 2, received: 3, paid: 4, adjustment: 5 };
 
 function partySide(bills: CreditSale[], payments: Payment[], balances: SaleBalance[]): PartySide {
   const total = sum(bills, (b) => Number(b.amount));
   const allPaid = sum(payments, (p) => Number(p.amount));
   const adjusted = sum(
     payments.filter((p) => p.method === 'adjustment'),
+    (p) => Number(p.amount)
+  );
+  const returned = sum(
+    payments.filter((p) => p.method === 'return'),
     (p) => Number(p.amount)
   );
   const outstanding = sum(balances, (b) => b.outstanding);
@@ -624,8 +632,9 @@ function partySide(bills: CreditSale[], payments: Payment[], balances: SaleBalan
   );
   return {
     total,
-    paid: allPaid - adjusted,
+    paid: allPaid - adjusted - returned,
     adjusted,
+    returned,
     outstanding,
     overdue,
     advance: Math.max(0, allPaid - total),
@@ -711,7 +720,8 @@ export function calculatePartyLedger(
     lines.push({
       id: p.id,
       date: p.payment_date,
-      type: p.is_opening ? 'opening' : isPaid ? 'paid' : 'received',
+      // A return lowers the balance on the same side a payment does
+      type: p.is_opening ? 'opening' : p.method === 'return' ? 'return' : isPaid ? 'paid' : 'received',
       amount,
       debit: isPaid ? amount : 0,
       credit: isPaid ? 0 : amount,

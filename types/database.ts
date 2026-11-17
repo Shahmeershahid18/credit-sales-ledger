@@ -251,6 +251,7 @@ export type Database = {
           kind: string | null;
           is_customer: boolean | null;
           is_vendor: boolean | null;
+          returned: number | null;
         };
         Relationships: [];
       };

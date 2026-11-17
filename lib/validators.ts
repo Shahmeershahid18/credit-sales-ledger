@@ -35,6 +35,15 @@ export const PaymentSchema = z.object({
   notes: optionalText,
 });
 
+/** A customer return or vendor return: the reason is required */
+export const ReturnSchema = z.object({
+  customer_id: z.string().min(1, 'Please select the party'),
+  return_date: dateField,
+  amount: z.coerce.number().positive('The return amount must be greater than 0'),
+  sale_id: optionalText,
+  reason: z.string().trim().min(2, 'Please enter the reason for the return').max(200, 'The reason is too long'),
+});
+
 function optionalRate(message: string) {
   return z.preprocess(
     (v) => (v === '' || v === null || v === undefined ? null : v),

@@ -6,13 +6,14 @@ interface YearPickerProps {
   year: number;
   thisYear: number;
   query?: string; // other report parameters to keep, e.g. "side=vendor"
+  basePath?: string; // the page the picker moves through
 }
 
 /**
  * Previous / next year for the yearly report. There is no year after the current one.
  */
-export function YearPicker({ year, thisYear, query }: YearPickerProps) {
-  const href = (y: number) => `/reports?${query ? `${query}&` : ''}year=${y}`;
+export function YearPicker({ year, thisYear, query, basePath = '/reports' }: YearPickerProps) {
+  const href = (y: number) => `${basePath}?${query ? `${query}&` : ''}year=${y}`;
   const arrow = 'w-9 h-full flex items-center justify-center';
 
   return (

@@ -34,7 +34,8 @@ login, and anything you add is lost when the server restarts. A banner in the ap
    6. `supabase/migrations/20261107000000_parties.sql` (one party can be a customer and a vendor, with a
       combined ledger, settlement and merge)
    7. `supabase/migrations/20261114000000_opening_balance.sql` (opening balance for a party)
-   8. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+   8. `supabase/migrations/20261118000000_returns.sql` (customer returns and vendor returns)
+   9. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
    The service role key is a secret used only on the server; never commit it.
@@ -78,6 +79,13 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   sale, purchase or payment. A balance on a side the party does not have (for example *I owe them* for a
   customer-only party) is kept as an advance. In the database it is the one `credit_sales` or `payments`
   row with `is_opening = true`, set by `set_opening_balance()`.
+- **Returns.** **Return** on a party page (or **Customer return** / **Vendor return** in the New menu) records
+  goods sent back: party, date, amount, reason and, optionally, the sale or purchase they came from. A
+  customer return lowers what the customer owes; a vendor return lowers what you owe. Returns appear as
+  their own lines in the ledger (with a **Returns** filter) and on statements, but are never counted as
+  payments received or made. **Returns** under Reports lists them date-wise or party-wise, by month or year,
+  with CSV export. In the database a return is a `payments` row with `method = 'return'` and the reason in
+  `notes`; `customer_summary.returned` totals them, and `payment_received` leaves them out.
 - **Quantity history.** The Report page's **Quantity by customer** (or vendor) table shows, for one material
   at a time, how much each party took each month (the last 12 months, or the chosen year), with totals and
   CSV export. Each party page has a **Monthly quantity** table: months down, one column per material.

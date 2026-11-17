@@ -72,6 +72,8 @@ export function PartySettlement({ partyId, customer, vendor, net, settleable }: 
         <Line label="Less: total purchase" value={vendor.total} />
         {customer.paid > 0 && <Line label="Less: payments received" value={customer.paid} />}
         {vendor.paid > 0 && <Line label="Add: payments made" value={vendor.paid} />}
+        {customer.returned > 0 && <Line label="Less: customer returns" value={customer.returned} />}
+        {vendor.returned > 0 && <Line label="Add: returns to vendor" value={vendor.returned} />}
       </dl>
 
       <div className="mt-3 pt-3 border-t border-zinc-200 flex flex-wrap items-end justify-between gap-2">

@@ -27,6 +27,7 @@ import {
   Scale,
   FileText,
   ShoppingCart,
+  Undo2,
 } from 'lucide-react';
 
 export async function contactMetadata(kind: ContactKind, id: string): Promise<Metadata> {
@@ -117,6 +118,10 @@ export async function ContactLedgerView({ kind, id }: { kind: ContactKind; id: s
                   <ArrowDownLeft className="w-4 h-4" />
                   Receive
                 </Link>
+                <Link href={`${customerHref}/return/new`} className={buttonClass('secondary')}>
+                  <Undo2 className="w-4 h-4" />
+                  {both ? 'Customer return' : 'Return'}
+                </Link>
               </>
             )}
             {contact.is_vendor && (
@@ -128,6 +133,10 @@ export async function ContactLedgerView({ kind, id }: { kind: ContactKind; id: s
                 <Link href={`${vendorHref}/payment/new`} className={buttonClass(both ? 'secondary' : 'success')}>
                   <ArrowUpRight className="w-4 h-4" />
                   Pay
+                </Link>
+                <Link href={`${vendorHref}/return/new`} className={buttonClass('secondary')}>
+                  <Undo2 className="w-4 h-4" />
+                  {both ? 'Vendor return' : 'Return'}
                 </Link>
               </>
             )}
@@ -166,7 +175,13 @@ export async function ContactLedgerView({ kind, id }: { kind: ContactKind; id: s
       ) : (
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
           <StatCard label={terms.totalLabel} value={formatRs(side.total)} icon={Receipt} />
-          <StatCard label={terms.paidLabel} value={formatRs(side.paid)} icon={CreditCard} variant="success" />
+          <StatCard
+            label={terms.paidLabel}
+            value={formatRs(side.paid)}
+            icon={CreditCard}
+            variant="success"
+            subtext={side.returned > 0 ? `+ ${formatRs(side.returned)} in returns` : undefined}
+          />
           <StatCard
             label={terms.balanceLabel}
             value={formatRs(side.outstanding)}

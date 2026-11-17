@@ -15,6 +15,7 @@ import {
   Truck,
   CalendarClock,
   ShoppingCart,
+  Undo2,
 } from 'lucide-react';
 import { signOutAction } from '@/app/actions/auth';
 import { Logo } from './Logo';
@@ -42,12 +43,13 @@ const overdueItem: NavItem = { label: 'Overdue', href: '/overdue', icon: AlertCi
 const vendorsItem: NavItem = { label: 'Vendors', href: '/vendors', icon: Truck, match: starts('/vendors') };
 const billsItem: NavItem = { label: 'Bills to pay', href: '/bills', icon: CalendarClock, match: starts('/bills') };
 const reportItem: NavItem = { label: 'Report', href: '/reports', icon: FileBarChart, match: starts('/reports') };
+const returnsItem: NavItem = { label: 'Returns', href: '/returns', icon: Undo2, match: starts('/returns') };
 
 const sidebarSections: { title?: string; items: NavItem[] }[] = [
   { items: [dashboardItem] },
   { title: 'Sales', items: [customersItem, overdueItem] },
   { title: 'Purchases', items: [vendorsItem, billsItem] },
-  { title: 'Reports', items: [reportItem] },
+  { title: 'Reports', items: [reportItem, returnsItem] },
 ];
 
 const mobileTabs = [dashboardItem, customersItem, vendorsItem, overdueItem, reportItem];
@@ -57,6 +59,8 @@ const quickActions = [
   { label: 'Record payment', href: '/payments/new', icon: ArrowDownLeft },
   { label: 'New purchase', href: '/purchases/new', icon: ShoppingCart },
   { label: 'Pay vendor', href: '/vendor-payments/new', icon: ArrowUpRight },
+  { label: 'Customer return', href: '/returns/new', icon: Undo2 },
+  { label: 'Vendor return', href: '/returns/new?side=vendor', icon: Undo2 },
 ];
 
 const sidebarLink = (active: boolean) =>

@@ -12,7 +12,7 @@ import { CsvExportButton } from '@/components/CsvExportButton';
 import { MonthlyHistory } from '@/components/MonthlyHistory';
 import { QuantityReport } from '@/components/QuantityReport';
 import { EmptyState, PageHeader, cardClass } from '@/components/ui';
-import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart, FileDown } from 'lucide-react';
+import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart, FileDown, Undo2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Report' };
@@ -124,6 +124,13 @@ export default async function ReportPage({ searchParams }: ReportPageProps) {
           label="Report side"
           items={(['customer', 'vendor'] as const).map((k) => ({ label: LABELS[k].tab, href: withSide(periodQuery, k), active: k === kind }))}
         />
+        <Link
+          href={`/returns?${kind === 'vendor' ? 'side=vendor&' : ''}${periodQuery}`}
+          className="text-sm font-medium text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1"
+        >
+          <Undo2 className="w-4 h-4" />
+          Returns report
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">

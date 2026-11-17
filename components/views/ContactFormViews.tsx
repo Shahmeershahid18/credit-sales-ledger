@@ -11,6 +11,7 @@ import {
   getParties,
   getPartyLedger,
   getPaymentById,
+  getReturnById,
 } from '@/lib/queries';
 import { ContactKind, SIDES } from '@/lib/contacts';
 import { Customer } from '@/lib/types';
@@ -18,6 +19,7 @@ import { CustomerForm } from '@/components/CustomerForm';
 import { MergeParty } from '@/components/MergeParty';
 import { SaleForm } from '@/components/SaleForm';
 import { PaymentForm } from '@/components/PaymentForm';
+import { ReturnForm } from '@/components/ReturnForm';
 import { PageHeader, cardClass } from '@/components/ui';
 
 // Form pages shared by customers and vendors. With an `id` they are opened from one
@@ -145,6 +147,7 @@ export async function EditPaymentView({ kind, id, paymentId }: { kind: ContactKi
   const [contact, entry] = await Promise.all([getCustomerById(id, kind), getPaymentById(kind, id, paymentId)]);
   if (!contact || !entry || entry.method === 'adjustment') notFound();
   if (entry.is_opening) redirect(`${terms.base}/${id}/edit#opening`);
+  if (entry.method === 'return') redirect(`${terms.base}/${id}/return/${paymentId}/edit`);
 
   const [contacts, sales] = await Promise.all([getCustomerCards(kind), getCustomerSaleOptions(id, kind, paymentId)]);
   const href = `${terms.base}/${id}`;
@@ -190,6 +193,63 @@ export async function NewPaymentView({ kind, id }: { kind: ContactKind; id?: str
         kind={kind}
         customers={contacts.map((c) => ({ id: c.customer_id, name: c.name, outstanding: c.outstanding, overdue: c.overdue }))}
         cancelHref="/dashboard"
+      />
+    </FormPage>
+  );
+}
+
+const RETURN_TITLES = { customer: 'Customer return', vendor: 'Vendor return' } as const;
+
+/** /returns/new?side=…, /customers/[id]/return/new, /vendors/[id]/return/new */
+export async function NewReturnView({ kind, id, backHref = '/returns' }: { kind: ContactKind; id?: string; backHref?: string }) {
+  const terms = SIDES[kind];
+
+  if (id) {
+    const contact = await getCustomerById(id, kind);
+    if (!contact) notFound();
+    const [ledger, bills] = await Promise.all([getLedger(id, kind), getCustomerSaleOptions(id, kind)]);
+    const href = `${terms.base}/${id}`;
+    return (
+      <FormPage title={RETURN_TITLES[kind]} description={contact.name} backHref={href}>
+        <ReturnForm
+          kind={kind}
+          customers={[{ id: contact.id, name: contact.name, outstanding: ledger.outstanding, overdue: ledger.overdue }]}
+          preselectedCustomerId={id}
+          initialSales={bills}
+          cancelHref={href}
+        />
+      </FormPage>
+    );
+  }
+
+  const contacts = await getCustomerCards(kind);
+  return (
+    <FormPage title={RETURN_TITLES[kind]} backHref={backHref}>
+      <ReturnForm
+        kind={kind}
+        customers={contacts.map((c) => ({ id: c.customer_id, name: c.name, outstanding: c.outstanding, overdue: c.overdue }))}
+        cancelHref={backHref}
+      />
+    </FormPage>
+  );
+}
+
+/** /customers/[id]/return/[returnId]/edit, /vendors/[id]/return/[returnId]/edit */
+export async function EditReturnView({ kind, id, returnId }: { kind: ContactKind; id: string; returnId: string }) {
+  const terms = SIDES[kind];
+  const [contact, entry] = await Promise.all([getCustomerById(id, kind), getReturnById(kind, id, returnId)]);
+  if (!contact || !entry) notFound();
+
+  const [contacts, bills] = await Promise.all([getCustomerCards(kind), getCustomerSaleOptions(id, kind, returnId)]);
+  const href = `${terms.base}/${id}`;
+  return (
+    <FormPage title={`Edit ${RETURN_TITLES[kind].toLowerCase()}`} description={contact.name} backHref={href}>
+      <ReturnForm
+        kind={kind}
+        customers={contacts.map((c) => ({ id: c.customer_id, name: c.name, outstanding: c.outstanding, overdue: c.overdue }))}
+        initialSales={bills}
+        cancelHref={href}
+        entry={entry}
       />
     </FormPage>
   );

@@ -8,12 +8,13 @@ import { formatMonth, getCurrentMonthStr, shiftMonth } from '@/lib/format';
 interface MonthPickerProps {
   currentMonth: string; // YYYY-MM
   query?: string; // other report parameters to keep, e.g. "side=vendor"
+  basePath?: string; // the page the picker moves through
 }
 
-export function MonthPicker({ currentMonth, query }: MonthPickerProps) {
+export function MonthPicker({ currentMonth, query, basePath = '/reports' }: MonthPickerProps) {
   const router = useRouter();
   const thisMonth = getCurrentMonthStr();
-  const go = (month: string) => router.push(`/reports?${query ? `${query}&` : ''}month=${month}`);
+  const go = (month: string) => router.push(`${basePath}?${query ? `${query}&` : ''}month=${month}`);
 
   return (
     <div className="flex items-center gap-2">

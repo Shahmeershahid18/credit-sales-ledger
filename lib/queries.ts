@@ -43,11 +43,12 @@ import {
   PartyLedger,
   PartyStatement,
   QuantityHistory,
+  ReturnEntry,
   Payment,
   PaymentMethod,
   UserListItem,
 } from './types';
-import { addDays, calculateDueDate, daysBetween, formatRs, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
+import { addDays, calculateDueDate, daysBetween, formatDate, formatRs, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
 
 // All DB reads and writes live here. When Supabase is configured they go to the
 // database (views + monthly_report RPC), scoped to one user's ledger; otherwise they
@@ -144,7 +145,7 @@ function toSale(r: SaleRow): CreditSale {
 }
 
 function toPaymentMethod(value: string): PaymentMethod {
-  return value === 'bank' || value === 'cheque' || value === 'adjustment' ? value : 'cash';
+  return value === 'bank' || value === 'cheque' || value === 'adjustment' || value === 'return' ? value : 'cash';
 }
 
 function toPayment(r: PaymentRow): Payment {
@@ -172,6 +173,7 @@ function toSummary(r: SummaryRow): CustomerSummary {
     address: r.address,
     total_credit_sale: num(r.total_credit_sale),
     payment_received: num(r.payment_received),
+    returned: num(r.returned),
     outstanding: num(r.outstanding),
     overdue: num(r.overdue),
     advance: num(r.advance),
@@ -298,7 +300,7 @@ function demoDashboard(kind: ContactKind, month: string): DashboardStats {
 function partyBalances(customers: CustomerSummary[], vendors: CustomerSummary[]): Map<string, number> {
   const net = new Map<string, number>();
   const add = (s: CustomerSummary, sign: number) =>
-    net.set(s.customer_id, (net.get(s.customer_id) ?? 0) + sign * (s.total_credit_sale - s.payment_received));
+    net.set(s.customer_id, (net.get(s.customer_id) ?? 0) + sign * (s.total_credit_sale - s.payment_received - s.returned));
   customers.forEach((s) => add(s, 1));
   vendors.forEach((s) => add(s, -1));
   return net;
@@ -672,7 +674,7 @@ async function fetchPeriodRows({ db, ownerId }: Ctx, kind: ContactKind, start: s
         .select('*')
         .eq('owner_id', ownerId)
         .eq('kind', kind)
-        .neq('method', 'adjustment')
+        .not('method', 'in', '(adjustment,return)')
         .eq('is_opening', false)
         .gte('payment_date', start)
         .lt('payment_date', end)
@@ -808,7 +810,7 @@ export async function getCustomerSaleOptions(customerId: string, kind: ContactKi
 type MaterialRow = Database['public']['Tables']['materials']['Row'];
 type MaterialInput = { name: string; unit: string; rate: number | null; purchase_rate: number | null };
 
-const LATEST_MIGRATION = 'supabase/migrations/20261114000000_opening_balance.sql';
+const LATEST_MIGRATION = 'supabase/migrations/20261118000000_returns.sql';
 
 /**
  * True when a PostgREST error means a table or column from a newer migration is missing
@@ -1116,6 +1118,7 @@ export async function createPayment(
   const terms = SIDES[kind];
   const wrongEntry = `The selected ${terms.entry} does not belong to this ${terms.one}.`;
   if (data.method === 'adjustment') throw new Error('Use Adjust on the party page to set purchases off against sales.');
+  if (data.method === 'return') throw new Error('Record goods returned as a return, not a payment.');
   const values = {
     customer_id: data.customer_id,
     kind,
@@ -1156,6 +1159,7 @@ type PaymentInput = Parameters<typeof createPayment>[1];
 
 const ADJUSTMENT_LOCKED = 'An adjustment cannot be edited. Delete it on the party page and use Adjust again.';
 const OPENING_LOCKED = "Change the opening balance on the party's Edit page.";
+const RETURN_LOCKED = 'This is a return: edit it as a return.';
 
 /**
  * Where an opening balance is stored: a bill on the side that owes, or, when the party
@@ -1327,6 +1331,7 @@ export async function updatePayment(kind: ContactKind, id: string, data: Payment
   const missing = new Error('This payment no longer exists.');
   const wrongEntry = `The selected ${terms.entry} does not belong to this ${terms.one}.`;
   if (data.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+  if (data.method === 'return') throw new Error(RETURN_LOCKED);
   const values = {
     customer_id: data.customer_id,
     payment_date: data.payment_date,
@@ -1343,6 +1348,7 @@ export async function updatePayment(kind: ContactKind, id: string, data: Payment
     const existing = store.payments.find((p) => p.id === id && p.kind === kind);
     if (!existing) throw missing;
     if (existing.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+    if (existing.method === 'return') throw new Error(RETURN_LOCKED);
     if (existing.is_opening) throw new Error(OPENING_LOCKED);
     if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id && s.kind === kind)) {
       throw new Error(wrongEntry);
@@ -1363,6 +1369,7 @@ export async function updatePayment(kind: ContactKind, id: string, data: Payment
   if (readError) throw schemaError(readError);
   if (!current) throw missing;
   if (current.method === 'adjustment') throw new Error(ADJUSTMENT_LOCKED);
+  if (current.method === 'return') throw new Error(RETURN_LOCKED);
   if (current.is_opening) throw new Error(OPENING_LOCKED);
 
   const { data: row, error } = await db
@@ -1411,6 +1418,8 @@ export async function deleteLedgerEntry(partyId: string, type: PartyEntryType, i
     } else if (type === 'sale' || type === 'purchase') {
       remove(store.sales, (s) => s.id === id && s.customer_id === partyId && s.kind === kind);
       store.payments.forEach((p) => p.sale_id === id && (p.sale_id = null));
+    } else if (type === 'return') {
+      remove(store.payments, (p) => p.id === id && p.customer_id === partyId && p.method === 'return');
     } else if (type === 'adjustment') {
       remove(store.payments, (p) => p.customer_id === partyId && p.method === 'adjustment' && (p.settlement_id === id || p.id === id));
     } else {
@@ -1430,6 +1439,8 @@ export async function deleteLedgerEntry(partyId: string, type: PartyEntryType, i
   } else if (type === 'sale' || type === 'purchase') {
     // The database unlinks the payments recorded against it
     result = await db.from('credit_sales').delete().eq('owner_id', ownerId).eq('customer_id', partyId).eq('kind', kind).eq('id', id).select('id');
+  } else if (type === 'return') {
+    result = await db.from('payments').delete().eq('owner_id', ownerId).eq('customer_id', partyId).eq('method', 'return').eq('id', id).select('id');
   } else if (type === 'adjustment') {
     result = await db
       .from('payments')
@@ -1452,6 +1463,155 @@ export async function deleteLedgerEntry(partyId: string, type: PartyEntryType, i
   }
   if (result.error) throw schemaError(result.error);
   if (!result.data?.length) throw missing;
+}
+
+// ---------------------------------------------------------------------------
+// Returns: goods a customer returned (kind 'customer') or you returned to a vendor
+// (kind 'vendor'). Stored as payments with method 'return' and the reason in notes.
+// ---------------------------------------------------------------------------
+
+type ReturnInput = { customer_id: string; return_date: string; amount: number; sale_id?: string | null; reason: string };
+
+/** One return of a party, for its edit page */
+export async function getReturnById(kind: ContactKind, partyId: string, id: string): Promise<Payment | null> {
+  const payment = await getPaymentById(kind, partyId, id);
+  return payment?.method === 'return' ? payment : null;
+}
+
+function returnValues(kind: ContactKind, data: ReturnInput) {
+  return {
+    customer_id: data.customer_id,
+    kind,
+    payment_date: data.return_date,
+    amount: data.amount,
+    method: 'return' as const,
+    sale_id: data.sale_id || null,
+    notes: data.reason,
+  };
+}
+
+/** Records a customer return (lowers what they owe) or a vendor return (lowers what you owe) */
+export async function createReturn(kind: ContactKind, data: ReturnInput): Promise<Payment> {
+  const terms = SIDES[kind];
+  const wrongEntry = `The selected ${terms.entry} does not belong to this ${terms.one}.`;
+  const values = returnValues(kind, data);
+  const ctx = await getCtx();
+  await assertParty(ctx, data.customer_id, kind);
+
+  if (!ctx) {
+    const store = getDemoData();
+    if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id && s.kind === kind)) {
+      throw new Error(wrongEntry);
+    }
+    const entry: Payment = { id: newDemoId('ret'), ...values, created_at: new Date().toISOString() };
+    store.payments.push(entry);
+    return entry;
+  }
+
+  const { data: row, error } = await ctx.db
+    .from('payments')
+    .insert({ ...values, owner_id: ctx.ownerId })
+    .select()
+    .single();
+  if (error) {
+    if (error.code === '23503') throw new Error(/sale/.test(error.message) ? wrongEntry : `${terms.One} not found`);
+    throw schemaError(error);
+  }
+  return toPayment(row);
+}
+
+/** Corrects a return */
+export async function updateReturn(kind: ContactKind, id: string, data: ReturnInput): Promise<Payment> {
+  const terms = SIDES[kind];
+  const missing = new Error('This return no longer exists.');
+  const wrongEntry = `The selected ${terms.entry} does not belong to this ${terms.one}.`;
+  const values = returnValues(kind, data);
+  const ctx = await getCtx();
+  await assertParty(ctx, data.customer_id, kind);
+
+  if (!ctx) {
+    const store = getDemoData();
+    const existing = store.payments.find((p) => p.id === id && p.kind === kind && p.method === 'return');
+    if (!existing) throw missing;
+    if (data.sale_id && !store.sales.some((s) => s.id === data.sale_id && s.customer_id === data.customer_id && s.kind === kind)) {
+      throw new Error(wrongEntry);
+    }
+    return Object.assign(existing, values);
+  }
+
+  if (!UUID_RE.test(id)) throw missing;
+  const { data: row, error } = await ctx.db
+    .from('payments')
+    .update(values)
+    .eq('id', id)
+    .eq('owner_id', ctx.ownerId)
+    .eq('kind', kind)
+    .eq('method', 'return')
+    .select()
+    .maybeSingle();
+  if (error) {
+    if (error.code === '23503') throw new Error(/sale/.test(error.message) ? wrongEntry : `${terms.One} not found`);
+    throw schemaError(error);
+  }
+  if (!row) throw missing;
+  return toPayment(row);
+}
+
+/** Customer returns (kind 'customer') or vendor returns (kind 'vendor') dated from `start` up to (not including) `end` */
+export async function getReturns(kind: ContactKind, start: string, end: string): Promise<ReturnEntry[]> {
+  const ctx = await getCtx();
+  let returns: Payment[];
+  let parties: Customer[];
+  let bills: { id: string; material: string; sale_date: string }[];
+
+  if (!ctx) {
+    const store = getDemoData();
+    returns = store.payments.filter((p) => p.kind === kind && p.method === 'return' && p.payment_date >= start && p.payment_date < end);
+    parties = store.customers;
+    bills = store.sales;
+  } else {
+    const { db, ownerId } = ctx;
+    const rows = await fetchAll((a, b) =>
+      db
+        .from('payments')
+        .select('*')
+        .eq('owner_id', ownerId)
+        .eq('kind', kind)
+        .eq('method', 'return')
+        .gte('payment_date', start)
+        .lt('payment_date', end)
+        .order('id')
+        .range(a, b)
+    );
+    returns = rows.map(toPayment);
+    const saleIds = [...new Set(returns.map((r) => r.sale_id).filter((x): x is string => Boolean(x)))];
+    const [p, s] = await Promise.all([
+      fetchCustomers(ctx),
+      saleIds.length
+        ? db.from('credit_sales').select('id, material, sale_date').eq('owner_id', ownerId).in('id', saleIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (s.error) throw schemaError(s.error);
+    parties = p;
+    bills = s.data ?? [];
+  }
+
+  const names = new Map(parties.map((c) => [c.id, c.name]));
+  const billById = new Map(bills.map((b) => [b.id, b]));
+  return returns
+    .map((r) => {
+      const bill = r.sale_id ? billById.get(r.sale_id) : undefined;
+      return {
+        id: r.id,
+        partyId: r.customer_id,
+        partyName: names.get(r.customer_id) ?? 'Unknown',
+        date: r.payment_date,
+        amount: Number(r.amount),
+        reason: r.notes ?? '',
+        against: bill ? `${bill.material} · ${formatDate(bill.sale_date)}` : null,
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date) || a.partyName.localeCompare(b.partyName));
 }
 
 /**
