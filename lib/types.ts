@@ -206,6 +206,23 @@ export type MonthFlow = {
   paid: number; // payments to vendors
 };
 
+/** Quantity of one material (in one unit) moved per month, in total and per party */
+export type QuantityMaterial = {
+  key: string; // material + unit, case-insensitive
+  name: string;
+  unit: string;
+  entries: number; // sales (or purchases) recorded
+  total: number;
+  byMonth: number[]; // same order as QuantityHistory.months
+  parties: { id: string; name: string; total: number; byMonth: number[] }[]; // largest total first
+};
+
+/** Customer-wise (or vendor-wise) monthly quantity history, one table per material */
+export type QuantityHistory = {
+  months: string[]; // YYYY-MM, oldest first
+  materials: QuantityMaterial[]; // most recorded first
+};
+
 /**
  * Both sides of the dashboard, plus what you will receive and pay once each party's
  * sales and purchases are netted against each other

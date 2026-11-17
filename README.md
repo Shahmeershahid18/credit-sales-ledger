@@ -78,6 +78,10 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   sale, purchase or payment. A balance on a side the party does not have (for example *I owe them* for a
   customer-only party) is kept as an advance. In the database it is the one `credit_sales` or `payments`
   row with `is_opening = true`, set by `set_opening_balance()`.
+- **Quantity history.** The Report page's **Quantity by customer** (or vendor) table shows, for one material
+  at a time, how much each party took each month (the last 12 months, or the chosen year), with totals and
+  CSV export. Each party page has a **Monthly quantity** table: months down, one column per material.
+  Quantities are only added within the same material and unit, so bags and tons never mix.
 - The dashboard's **To receive** and **To pay** net each party's two sides first, so the same money is
   never counted on both sides.
 - In the database, parties live in `customers` (`is_customer`, `is_vendor`). Each `credit_sales` row is

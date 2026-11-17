@@ -17,6 +17,16 @@ export function formatRs(amount: number | null | undefined): string {
   return rounded < 0 ? `-Rs. ${formatted}` : `Rs. ${formatted}`;
 }
 
+/** Groups quantities by material and unit: "Cement / bag" and "cement / Bag" are one, bags and tons never mix */
+export function quantityKey(material: string, unit: string | null | undefined): string {
+  return `${material.trim().toLowerCase()}|${(unit ?? '').trim().toLowerCase()}`;
+}
+
+/** A quantity: thousands separators, up to 2 decimals (1,250 or 2.5) */
+export function formatQuantity(qty: number): string {
+  return (Math.round(qty * 100) / 100).toLocaleString('en-PK', { maximumFractionDigits: 2 });
+}
+
 /**
  * A party balance as an amount with its side: Dr when they owe you (receivable),
  * Cr when you owe them (payable). Zero has no side.

@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getMonthFlows, getMonthlyReportData, getYearlyReportData } from '@/lib/queries';
+import { getMonthFlows, getMonthlyReportData, getQuantityHistory, getYearlyReportData } from '@/lib/queries';
 import { ContactKind, SIDES } from '@/lib/contacts';
 import { formatRs, shiftMonth } from '@/lib/format';
 import { parseReportParams, reportQuery, type ReportSearchParams } from '@/lib/report-params';
@@ -10,6 +10,7 @@ import { YearPicker } from '@/components/YearPicker';
 import { StatCard } from '@/components/StatCard';
 import { CsvExportButton } from '@/components/CsvExportButton';
 import { MonthlyHistory } from '@/components/MonthlyHistory';
+import { QuantityReport } from '@/components/QuantityReport';
 import { EmptyState, PageHeader, cardClass } from '@/components/ui';
 import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart, FileDown } from 'lucide-react';
 
@@ -66,9 +67,10 @@ export default async function ReportPage({ searchParams }: ReportPageProps) {
   const historyFrom = yearly ? `${reportYear}-01` : shiftMonth(thisMonth, -11);
   const historyTo = yearly ? (reportYear === thisYear ? thisMonth : `${reportYear}-12`) : thisMonth;
 
-  const [report, history] = await Promise.all([
+  const [report, history, quantities] = await Promise.all([
     yearly ? getYearlyReportData(kind, String(reportYear)) : getMonthlyReportData(kind, reportMonth),
     getMonthFlows(historyFrom, historyTo),
+    getQuantityHistory(kind, historyFrom, historyTo),
   ]);
   const rows = report.customerBreakdown;
   const periodName = yearly ? 'year' : 'month';
@@ -232,6 +234,13 @@ export default async function ReportPage({ searchParams }: ReportPageProps) {
           </>
         )}
       </section>
+
+      <QuantityReport
+        key={kind}
+        kind={kind}
+        history={quantities}
+        description={yearly ? `${reportYear}${reportYear === thisYear ? ' so far' : ''}` : 'Last 12 months'}
+      />
 
       {yearly ? (
         <MonthlyHistory

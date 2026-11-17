@@ -20,6 +20,7 @@ import {
   buildPartyStatement,
   cashPayments,
   topBalances,
+  buildQuantityHistory,
 } from './store';
 import { ContactKind, SIDES } from './contacts';
 import {
@@ -41,6 +42,7 @@ import {
   PartyEntryType,
   PartyLedger,
   PartyStatement,
+  QuantityHistory,
   Payment,
   PaymentMethod,
   UserListItem,
@@ -616,6 +618,42 @@ export async function getMonthFlows(from: string, to: string): Promise<MonthFlow
  * One side's bills made or falling due in [start, end), and the money received or
  * paid in it (settlement adjustments are not money, so they are left out)
  */
+/**
+ * Quantity sold (kind 'customer') or bought (kind 'vendor') per material, month and party,
+ * for the months from `from` to `to` (YYYY-MM, inclusive)
+ */
+export async function getQuantityHistory(kind: ContactKind, from: string, to: string): Promise<QuantityHistory> {
+  const months = monthRange(from, to);
+  const ctx = await getCtx();
+
+  if (!ctx) {
+    const { customers, sales } = getDemoData();
+    return buildQuantityHistory(months, customers, sales.filter((s) => s.kind === kind));
+  }
+
+  const { db, ownerId } = ctx;
+  const [parties, sales] = await Promise.all([
+    fetchCustomers(ctx),
+    fetchAll((a, b) =>
+      db
+        .from('credit_sales')
+        .select('id, customer_id, material, unit, quantity, sale_date, is_opening')
+        .eq('owner_id', ownerId)
+        .eq('kind', kind)
+        .eq('is_opening', false)
+        .gte('sale_date', `${from}-01`)
+        .lt('sale_date', nextMonthStart(to))
+        .order('id')
+        .range(a, b)
+    ),
+  ]);
+  return buildQuantityHistory(
+    months,
+    parties,
+    sales.map((s) => ({ ...s, quantity: num(s.quantity) }))
+  );
+}
+
 async function fetchPeriodRows({ db, ownerId }: Ctx, kind: ContactKind, start: string, end: string) {
   const [soldOrDue, payments] = await Promise.all([
     fetchAll((from, to) =>

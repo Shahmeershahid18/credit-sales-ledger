@@ -20,10 +20,12 @@ import {
   PartyLedgerRow,
   PartySide,
   PartyStatement,
+  QuantityHistory,
+  QuantityMaterial,
 } from './types';
 import { createSampleData } from './sample-data';
 import type { ContactKind } from './contacts';
-import { addDays, daysBetween, formatDate, formatMonth, getTodayDateStr } from './format';
+import { addDays, daysBetween, formatDate, formatMonth, getTodayDateStr, quantityKey } from './format';
 
 // ---------------------------------------------------------------------------
 // Demo store (used only when Supabase is not configured).
@@ -545,6 +547,61 @@ export function buildMonthFlows(
   }
 
   return months.map((m) => byMonth.get(m)!);
+}
+
+/**
+ * Quantity sold (or bought) per material and month, in total and per party, for the
+ * months given (YYYY-MM, oldest first). Opening balances are not material moved.
+ */
+export function buildQuantityHistory(
+  months: string[],
+  parties: { id: string; name: string }[],
+  sales: { customer_id: string; material: string; unit: string | null; quantity: number; sale_date: string; is_opening?: boolean }[]
+): QuantityHistory {
+  const monthIndex = new Map(months.map((m, i) => [m, i]));
+  const names = new Map(parties.map((p) => [p.id, p.name]));
+  const materials = new Map<string, QuantityMaterial & { byParty: Map<string, QuantityMaterial['parties'][number]> }>();
+
+  for (const s of newBusiness(sales)) {
+    const i = monthIndex.get(s.sale_date.slice(0, 7));
+    const qty = Number(s.quantity);
+    if (i === undefined || !(qty > 0)) continue;
+    const key = quantityKey(s.material, s.unit);
+    let m = materials.get(key);
+    if (!m) {
+      m = {
+        key,
+        name: s.material.trim(),
+        unit: (s.unit ?? '').trim() || 'units',
+        entries: 0,
+        total: 0,
+        byMonth: months.map(() => 0),
+        parties: [],
+        byParty: new Map(),
+      };
+      materials.set(key, m);
+    }
+    let p = m.byParty.get(s.customer_id);
+    if (!p) {
+      p = { id: s.customer_id, name: names.get(s.customer_id) ?? 'Unknown', total: 0, byMonth: months.map(() => 0) };
+      m.byParty.set(s.customer_id, p);
+    }
+    m.entries += 1;
+    m.total += qty;
+    m.byMonth[i] += qty;
+    p.total += qty;
+    p.byMonth[i] += qty;
+  }
+
+  return {
+    months,
+    materials: [...materials.values()]
+      .map(({ byParty, ...m }) => ({
+        ...m,
+        parties: [...byParty.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name)),
+  };
 }
 
 // ---------------------------------------------------------------------------

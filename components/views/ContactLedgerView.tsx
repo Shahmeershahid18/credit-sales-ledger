@@ -9,6 +9,7 @@ import { balanceLabel, formatRs, formatDate } from '@/lib/format';
 import { StatusBadge } from '@/components/StatusBadge';
 import { StatCard } from '@/components/StatCard';
 import { LedgerTable } from '@/components/LedgerTable';
+import { PartyQuantityHistory } from '@/components/PartyQuantityHistory';
 import { PartySettlement } from '@/components/PartySettlement';
 import { WhatsAppButton } from '@/components/WhatsAppButton';
 import { PageHeader, buttonClass } from '@/components/ui';
@@ -193,6 +194,9 @@ export async function ContactLedgerView({ kind, id }: { kind: ContactKind; id: s
         <h2 className="text-base font-semibold text-zinc-900">Ledger</h2>
         <LedgerTable rows={ledger.rows} partyId={id} kind={kind} roles={{ customer: contact.is_customer, vendor: contact.is_vendor }} />
       </section>
+
+      <PartyQuantityHistory rows={ledger.rows} roles={{ customer: contact.is_customer, vendor: contact.is_vendor }} />
+
     </div>
   );
 }
