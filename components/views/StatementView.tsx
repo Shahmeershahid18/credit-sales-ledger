@@ -7,7 +7,7 @@ import { getAuthState } from '@/lib/auth';
 import { getCustomerById, getPartyLedger } from '@/lib/queries';
 import { buildPartyStatement } from '@/lib/store';
 import { ContactKind, SIDES } from '@/lib/contacts';
-import { balanceLabel, displayName, formatBalance, formatDate, formatRs, getTodayDateStr } from '@/lib/format';
+import { balanceLabel, initials, formatBalance, formatDate, formatRs, getTodayDateStr } from '@/lib/format';
 import { statementDetails, statementPresets, statementQuery, statementRange } from '@/lib/statement';
 import { LogoMark } from '@/components/Logo';
 import { PrintButton } from '@/components/PrintButton';
@@ -33,7 +33,7 @@ export async function StatementView({ kind, id, from, to }: { kind: ContactKind;
   const statement = buildPartyStatement(ledger, range.from, range.to);
   const href = `${terms.base}/${id}`;
   const presets = statementPresets(ledger.rows[0]?.date ?? null);
-  const ledgerName = auth.mode === 'live' ? displayName(auth.owner) : 'Demo ledger';
+  const ledgerName = auth.mode === 'live' ? initials(auth.owner) : 'Demo ledger';
   const closingLabel = balanceLabel(statement.closing);
 
   return (

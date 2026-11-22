@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { getAuthState } from '@/lib/auth';
 import { ContactKind } from '@/lib/contacts';
-import { displayName, formatDate, getTodayDateStr } from '@/lib/format';
+import { initials, formatDate, getTodayDateStr } from '@/lib/format';
 import { getCustomerById, getPartyStatement } from '@/lib/queries';
 import { statementRange } from '@/lib/statement';
 import { StatementDocument } from './StatementDocument';
@@ -26,7 +26,7 @@ export async function statementPdfResponse(kind: ContactKind, id: string, params
 
   const pdf = await renderToBuffer(
     React.createElement(StatementDocument, {
-      ledgerName: auth.mode === 'live' ? displayName(auth.owner) : 'Demo ledger',
+      ledgerName: auth.mode === 'live' ? initials(auth.owner) : 'Demo ledger',
       party: { name: party.name, phone: party.phone, address: party.address },
       statement,
       generatedOn: formatDate(getTodayDateStr()),

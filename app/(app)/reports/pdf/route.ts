@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { getAuthState } from '@/lib/auth';
 import { SIDES } from '@/lib/contacts';
-import { displayName, formatDate, getTodayDateStr, monthRange, shiftMonth } from '@/lib/format';
+import { initials, formatDate, getTodayDateStr, monthRange, shiftMonth } from '@/lib/format';
 import { getMonthFlows, getMonthlyReportData, getYearlyReportData } from '@/lib/queries';
 import { parseReportParams } from '@/lib/report-params';
 import { ReportDocument, type ReportPdfData } from '@/lib/pdf/ReportDocument';
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     yearly: p.yearly,
     title: vendor ? 'Purchases report' : 'Sales report',
     periodLabel: p.yearly ? `Year ${p.year}${p.year === p.thisYear ? ` (to ${formatDate(today)})` : ''}` : report.formattedMonth,
-    ledgerName: auth.mode === 'live' ? displayName(auth.owner) : 'Demo ledger',
+    ledgerName: auth.mode === 'live' ? initials(auth.owner) : 'Demo ledger',
     generatedOn: formatDate(today),
     report,
     trend: flows.map((f) => ({ month: f.month, billed: vendor ? f.purchased : f.sold, cash: vendor ? f.paid : f.received })),

@@ -183,3 +183,15 @@ export function calculateDueDate(saleDate: string, creditDays: number): string {
 export function displayName(p: { full_name: string; email: string }): string {
   return p.full_name.trim() || p.email;
 }
+
+/**
+ * Initials for printed reports: first letters of the first and last name ("Azmat Karim" → "AK"),
+ * one letter for a single name, or the email's first letter when no name is set
+ */
+export function initials(p: { full_name: string; email: string }): string {
+  const words = p.full_name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return (p.email.trim()[0] ?? '?').toUpperCase();
+  const first = words[0][0];
+  const last = words.length > 1 ? words[words.length - 1][0] : '';
+  return `${first}${last}`.toUpperCase();
+}
