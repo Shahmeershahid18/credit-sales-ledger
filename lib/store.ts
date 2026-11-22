@@ -25,7 +25,7 @@ import {
 } from './types';
 import { createSampleData } from './sample-data';
 import type { ContactKind } from './contacts';
-import { addDays, daysBetween, formatDate, formatMonth, getTodayDateStr, quantityKey } from './format';
+import { addDays, daysBetween, formatDate, formatMonth, getTodayDateStr, quantityKey, unitGroup } from './format';
 
 // ---------------------------------------------------------------------------
 // Demo store (used only when Supabase is not configured).
@@ -597,15 +597,56 @@ export function buildQuantityHistory(
     p.byMonth[i] += qty;
   }
 
-  return {
-    months,
-    materials: [...materials.values()]
-      .map(({ byParty, ...m }) => ({
-        ...m,
+  const byPartyTotal = (a: { total: number; name: string }, b: { total: number; name: string }) =>
+    b.total - a.total || a.name.localeCompare(b.name);
+  const list = [...materials.values()]
+    .map(({ byParty, ...m }) => ({ ...m, parties: [...byParty.values()].sort(byPartyTotal) }))
+    .sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
+
+  return { months, materials: list, combined: combineMaterials(months, list) };
+}
+
+/**
+ * All materials added up, one total per unit group: kg and tons together as tons, every
+ * other unit (bag, truck…) with itself. Only groups of two or more materials.
+ */
+function combineMaterials(months: string[], materials: QuantityMaterial[]): QuantityMaterial[] {
+  const groups = new Map<string, { unit: string; members: { m: QuantityMaterial; factor: number }[] }>();
+  for (const m of materials) {
+    const g = unitGroup(m.unit);
+    const group = groups.get(g.key) ?? { unit: g.unit, members: [] };
+    group.members.push({ m, factor: g.factor });
+    groups.set(g.key, group);
+  }
+
+  return [...groups.entries()]
+    .filter(([, g]) => g.members.length > 1)
+    .map(([key, g]) => {
+      const byParty = new Map<string, QuantityMaterial['parties'][number]>();
+      const byMonth = months.map(() => 0);
+      for (const { m, factor } of g.members) {
+        m.byMonth.forEach((q, i) => (byMonth[i] += q * factor));
+        for (const p of m.parties) {
+          const party = byParty.get(p.id) ?? { id: p.id, name: p.name, total: 0, byMonth: months.map(() => 0) };
+          party.total += p.total * factor;
+          p.byMonth.forEach((q, i) => (party.byMonth[i] += q * factor));
+          byParty.set(p.id, party);
+        }
+      }
+      return {
+        key: `all|${key}`,
+        name: 'All materials',
+        unit: g.unit,
+        entries: g.members.reduce((s, x) => s + x.m.entries, 0),
+        total: g.members.reduce((s, x) => s + x.m.total * x.factor, 0),
+        byMonth,
         parties: [...byParty.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
-      }))
-      .sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name)),
-  };
+        combines: g.members.map(({ m, factor }) =>
+          factor !== 1 || m.unit.toLowerCase() !== g.unit.toLowerCase() ? `${m.name} (${m.unit} as ${g.unit})` : m.name
+        ),
+      };
+    })
+    .sort((a, b) => b.entries - a.entries);
 }
 
 // ---------------------------------------------------------------------------

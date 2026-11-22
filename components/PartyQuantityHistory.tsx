@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { PartyLedgerRow } from '@/lib/types';
-import { formatMonth, formatQuantity, quantityKey } from '@/lib/format';
+import { formatMonth, formatQuantity, quantityKey, unitGroup } from '@/lib/format';
 import { Segmented, cardClass } from './ui';
 
 interface PartyQuantityHistoryProps {
@@ -13,6 +13,7 @@ interface PartyQuantityHistoryProps {
 type Side = 'sale' | 'purchase';
 type Column = { key: string; name: string; unit: string; entries: number; total: number };
 type MonthRow = { month: string; qty: Map<string, number> };
+type Total = { key: string; unit: string; members: { key: string; factor: number }[]; total: number };
 
 const SHOWN_MONTHS = 12;
 
@@ -33,11 +34,27 @@ function tabulate(rows: PartyLedgerRow[], side: Side) {
     row.qty.set(key, (row.qty.get(key) ?? 0) + qty);
     months.set(month, row);
   }
+  const sorted = [...columns.values()].sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
+
+  // Combined totals: materials that can be added up (kg + ton as tons; same unit otherwise)
+  const groups = new Map<string, Total>();
+  for (const c of sorted) {
+    const g = unitGroup(c.unit);
+    const total = groups.get(g.key) ?? { key: `all|${g.key}`, unit: g.unit, members: [], total: 0 };
+    total.members.push({ key: c.key, factor: g.factor });
+    total.total += c.total * g.factor;
+    groups.set(g.key, total);
+  }
+
   return {
-    columns: [...columns.values()].sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name)),
+    columns: sorted,
+    totals: [...groups.values()].filter((t) => t.members.length > 1),
     months: [...months.values()].sort((a, b) => b.month.localeCompare(a.month)),
   };
 }
+
+/** A month's combined quantity for one total column */
+const monthTotal = (m: MonthRow, t: Total) => t.members.reduce((s, x) => s + (m.qty.get(x.key) ?? 0) * x.factor, 0);
 
 /**
  * A party's monthly quantity history: how much of each material was sold to it (or
@@ -55,7 +72,7 @@ export function PartyQuantityHistory({ rows, roles }: PartyQuantityHistoryProps)
   if (sides.length === 0) return null;
 
   const side = sides.includes(chosen) ? chosen : sides[0];
-  const { columns, months } = side === 'sale' ? sales : purchases;
+  const { columns, totals, months } = side === 'sale' ? sales : purchases;
   const visible = showAll ? months : months.slice(0, SHOWN_MONTHS);
 
   return (
@@ -65,6 +82,7 @@ export function PartyQuantityHistory({ rows, roles }: PartyQuantityHistoryProps)
           <h2 className="text-base font-semibold text-zinc-900">Monthly quantity</h2>
           <p className="text-xs text-zinc-500 mt-0.5">
             {side === 'sale' ? 'Sold to them' : 'Bought from them'} each month, each material in its own unit
+            {totals.length > 0 && ', with the combined total (kg added as tons)'}
           </p>
         </div>
         {sides.length > 1 && (
@@ -99,6 +117,13 @@ export function PartyQuantityHistory({ rows, roles }: PartyQuantityHistoryProps)
                       {c.name}: <span className="font-medium text-zinc-900 tabular-nums">{formatQuantity(m.qty.get(c.key)!)}</span> {c.unit}
                     </span>
                   ))}
+                {totals
+                  .filter((t) => monthTotal(m, t) > 0)
+                  .map((t) => (
+                    <span key={t.key} className="px-2 py-0.5 rounded-md bg-emerald-50 text-xs font-medium text-emerald-800">
+                      Total: <span className="tabular-nums">{formatQuantity(monthTotal(m, t))}</span> {t.unit}
+                    </span>
+                  ))}
               </p>
             </li>
           ))}
@@ -116,6 +141,12 @@ export function PartyQuantityHistory({ rows, roles }: PartyQuantityHistoryProps)
                     <span className="block text-[10px] text-zinc-400">{c.unit}</span>
                   </th>
                 ))}
+                {totals.map((t) => (
+                  <th key={t.key} className="py-2 px-4 text-right font-medium bg-emerald-50/60">
+                    <span className="block text-zinc-900 whitespace-nowrap">Total</span>
+                    <span className="block text-[10px] text-zinc-500">{t.unit}</span>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -130,6 +161,17 @@ export function PartyQuantityHistory({ rows, roles }: PartyQuantityHistoryProps)
                       </td>
                     );
                   })}
+                  {totals.map((t) => {
+                    const q = monthTotal(m, t);
+                    return (
+                      <td
+                        key={t.key}
+                        className={`py-2.5 px-4 text-right tabular-nums font-semibold bg-emerald-50/40 ${q > 0 ? 'text-zinc-900' : 'text-zinc-300'}`}
+                      >
+                        {q > 0 ? formatQuantity(q) : '—'}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -139,6 +181,11 @@ export function PartyQuantityHistory({ rows, roles }: PartyQuantityHistoryProps)
                 {columns.map((c) => (
                   <td key={c.key} className="py-2.5 px-4 text-right tabular-nums whitespace-nowrap">
                     {formatQuantity(c.total)}
+                  </td>
+                ))}
+                {totals.map((t) => (
+                  <td key={t.key} className="py-2.5 px-4 text-right tabular-nums whitespace-nowrap bg-emerald-50">
+                    {formatQuantity(t.total)}
                   </td>
                 ))}
               </tr>

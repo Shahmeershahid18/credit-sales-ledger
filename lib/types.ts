@@ -228,12 +228,14 @@ export type QuantityMaterial = {
   total: number;
   byMonth: number[]; // same order as QuantityHistory.months
   parties: { id: string; name: string; total: number; byMonth: number[] }[]; // largest total first
+  combines?: string[]; // a combined total: the materials added up, e.g. "Item B (kg as ton)"
 };
 
 /** Customer-wise (or vendor-wise) monthly quantity history, one table per material */
 export type QuantityHistory = {
   months: string[]; // YYYY-MM, oldest first
   materials: QuantityMaterial[]; // most recorded first
+  combined: QuantityMaterial[]; // all materials added up, one per unit group (kg + ton as tons; bags; trucks…)
 };
 
 /**

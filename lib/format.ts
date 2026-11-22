@@ -22,9 +22,33 @@ export function quantityKey(material: string, unit: string | null | undefined): 
   return `${material.trim().toLowerCase()}|${(unit ?? '').trim().toLowerCase()}`;
 }
 
-/** A quantity: thousands separators, up to 2 decimals (1,250 or 2.5) */
+/** A quantity: thousands separators, up to 3 decimals (1,250 or 0.25 or 0.075) */
 export function formatQuantity(qty: number): string {
-  return (Math.round(qty * 100) / 100).toLocaleString('en-PK', { maximumFractionDigits: 2 });
+  return (Math.round(qty * 1000) / 1000).toLocaleString('en-PK', { maximumFractionDigits: 3 });
+}
+
+// Weight units, as a fraction of a ton
+const TON_FACTOR: Record<string, number> = {
+  ton: 1,
+  tons: 1,
+  tonne: 1,
+  tonnes: 1,
+  mt: 1,
+  kg: 0.001,
+  kgs: 0.001,
+  kilogram: 0.001,
+  kilograms: 0.001,
+};
+
+/**
+ * Which quantities can be added together: kg and tons combine as tons (factor converts
+ * to tons); any other unit (bag, truck, pcs…) only with the same unit.
+ */
+export function unitGroup(unit: string | null | undefined): { key: string; unit: string; factor: number } {
+  const name = (unit ?? '').trim();
+  const factor = TON_FACTOR[name.toLowerCase()];
+  if (factor !== undefined) return { key: 'weight', unit: 'ton', factor };
+  return { key: name.toLowerCase() || 'units', unit: name || 'units', factor: 1 };
 }
 
 /**

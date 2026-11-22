@@ -24,7 +24,9 @@ const qtyOrDash = (qty: number) => (qty > 0 ? formatQuantity(qty) : '—');
  */
 export function QuantityReport({ kind, history, description }: QuantityReportProps) {
   const terms = SIDES[kind];
-  const { months, materials } = history;
+  const { months } = history;
+  // Combined totals first (all materials added up), then each material on its own
+  const materials = [...history.combined, ...history.materials];
   const [key, setKey] = useState(materials[0]?.key ?? '');
   const material = materials.find((m) => m.key === key) ?? materials[0];
   const verb = kind === 'vendor' ? 'bought' : 'sold';
@@ -43,8 +45,16 @@ export function QuantityReport({ kind, history, description }: QuantityReportPro
         <div>
           <h2 className="text-sm font-semibold text-zinc-900">Quantity by {terms.one}</h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            {description}: quantity {verb} each month, one material at a time
+            {description}: quantity {verb} each month, combined or one material at a time
           </p>
+          {material?.combines && (
+            <p className="text-xs text-zinc-600 mt-1">
+              <span className="font-medium text-zinc-900">
+                Combined in {material.unit}:
+              </span>{' '}
+              {material.combines.join(', ')}
+            </p>
+          )}
         </div>
         {material && (
           <div className="flex items-center gap-2">
@@ -58,14 +68,16 @@ export function QuantityReport({ kind, history, description }: QuantityReportPro
                 searchPlaceholder="Search materials…"
                 options={materials.map((m) => ({
                   value: m.key,
-                  label: m.name,
-                  description: `in ${m.unit}`,
+                  label: m.combines ? `All materials (${m.unit})` : m.name,
+                  description: m.combines ? `${m.combines.length} materials added up` : `in ${m.unit}`,
                   meta: `${formatQuantity(m.total)} ${m.unit}`,
                 }))}
               />
             </div>
             <CsvExportButton
-              filename={`credit-ledger-quantity-${material.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${months[0]}-to-${months[months.length - 1]}`}
+              filename={`credit-ledger-quantity-${`${material.name}${material.combines ? ` ${material.unit}` : ''}`
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')}-${months[0]}-to-${months[months.length - 1]}`}
               headers={csvHeaders}
               rows={csvRows}
             />

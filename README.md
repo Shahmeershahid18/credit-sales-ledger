@@ -89,7 +89,8 @@ login, and anything you add is lost when the server restarts. A banner in the ap
 - **Quantity history.** The Report page's **Quantity by customer** (or vendor) table shows, for one material
   at a time, how much each party took each month (the last 12 months, or the chosen year), with totals and
   CSV export. Each party page has a **Monthly quantity** table: months down, one column per material.
-  Quantities are only added within the same material and unit, so bags and tons never mix.
+  Quantities are added within the same material and unit, plus a **combined total**: kg and tons are added
+  together as tons (e.g. 100 kg + 200 kg = 0.3 ton); bags, trucks and other units each get their own combined total.
 - The dashboard's **To receive** and **To pay** net each party's two sides first, so the same money is
   never counted on both sides.
 - In the database, parties live in `customers` (`is_customer`, `is_vendor`). Each `credit_sales` row is
