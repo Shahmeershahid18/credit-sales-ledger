@@ -1,4 +1,6 @@
 import {
+  BusinessEntry,
+  StockCount,
   Customer,
   CreditSale,
   Payment,
@@ -33,12 +35,20 @@ import { addDays, daysBetween, formatDate, formatMonth, getTodayDateStr, quantit
 // server restarts.
 // ---------------------------------------------------------------------------
 
-type DemoData = { customers: Customer[]; sales: CreditSale[]; payments: Payment[]; materials: Material[] };
+type DemoData = {
+  customers: Customer[];
+  sales: CreditSale[];
+  payments: Payment[];
+  materials: Material[];
+  businessEntries: BusinessEntry[];
+  stockCounts: StockCount[];
+};
 
 const globalStore = globalThis as typeof globalThis & { __ledgerDemoData?: DemoData };
 
 export function getDemoData(): DemoData {
-  if (!globalStore.__ledgerDemoData) {
+  // A store from before profit tracking (kept across a hot reload) is replaced
+  if (!globalStore.__ledgerDemoData?.stockCounts) {
     globalStore.__ledgerDemoData = createSampleData();
   }
   return globalStore.__ledgerDemoData;

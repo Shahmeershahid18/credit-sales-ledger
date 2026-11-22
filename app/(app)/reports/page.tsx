@@ -12,7 +12,7 @@ import { CsvExportButton } from '@/components/CsvExportButton';
 import { MonthlyHistory } from '@/components/MonthlyHistory';
 import { QuantityReport } from '@/components/QuantityReport';
 import { EmptyState, PageHeader, cardClass } from '@/components/ui';
-import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart, FileDown, Undo2 } from 'lucide-react';
+import { ShoppingBag, CreditCard, CalendarClock, Wallet, FileBarChart, FileDown, TrendingUp, Undo2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Report' };
@@ -130,6 +130,13 @@ export default async function ReportPage({ searchParams }: ReportPageProps) {
         >
           <Undo2 className="w-4 h-4" />
           Returns report
+        </Link>
+        <Link
+          href={`/profit?month=${yearly ? monthForYear : reportMonth}`}
+          className="text-sm font-medium text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1"
+        >
+          <TrendingUp className="w-4 h-4" />
+          Profit and loss
         </Link>
       </div>
 

@@ -88,6 +88,38 @@ export const MaterialSchema = z.object({
   purchase_rate: optionalRate('Purchase rate cannot be negative'),
 });
 
+/** An expense, owner investment or owner withdrawal */
+export const BusinessEntrySchema = z
+  .object({
+    kind: z.enum(['expense', 'investment', 'withdrawal']),
+    entry_date: dateField,
+    amount: z.coerce.number().positive('The amount must be greater than 0'),
+    category: z.string().trim().max(60, 'The category is too long').nullish().transform((v) => v || null),
+    notes: z.string().trim().max(200, 'The note is too long').nullish().transform((v) => v || null),
+  })
+  .refine((e) => e.kind !== 'expense' || e.category, { message: 'Please choose or type the expense category', path: ['category'] })
+  .transform((e) => (e.kind === 'expense' ? e : { ...e, category: null }));
+
+export const MonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Please choose a valid month');
+
+/** The stock in hand at the end of a month, line by line */
+export const StockCountSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        kind: z.enum(['raw', 'finished']),
+        name: z.string().trim().min(1, 'Every stock line needs an item name').max(80, 'An item name is too long'),
+        quantity: z.coerce.number().min(0, 'Quantity cannot be negative'),
+        unit: z.string().trim().max(20).default(''),
+        rate: z.coerce.number().min(0, 'Rate cannot be negative'),
+      })
+    )
+    .max(300, 'Too many stock lines'),
+  notes: z.string().trim().max(200, 'The note is too long').nullish().transform((v) => v || null),
+});
+
+export const CostPriceSchema = optionalRate('The cost price cannot be negative');
+
 /**
  * First validation message, for showing in a form
  */

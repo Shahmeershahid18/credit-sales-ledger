@@ -35,7 +35,9 @@ login, and anything you add is lost when the server restarts. A banner in the ap
       combined ledger, settlement and merge)
    7. `supabase/migrations/20261114000000_opening_balance.sql` (opening balance for a party)
    8. `supabase/migrations/20261118000000_returns.sql` (customer returns and vendor returns)
-   9. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+   9. `supabase/migrations/20261122000000_profit.sql` (cost prices, expenses, owner investment and
+      withdrawals, month-end stock counts)
+   10. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
    The service role key is a secret used only on the server; never commit it.
@@ -97,6 +99,28 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   a sale or a purchase and each `payments` row is received or paid, by its `kind` column
   (`customer` / `vendor`). `settle_party()` and `merge_parties()` do settlement and merge.
 - Saved materials are shared by both forms and keep a sale rate and a purchase rate.
+
+## Profit and loss
+
+- **Profit & loss** (`/profit?month=2026-11`) shows a month's sales (after customer returns), the cost of the
+  items sold, gross profit, expenses and **net profit or loss**, each compared with the month before. Below
+  that: the profit and loss statement, the item-wise margin and the last 12 months side by side (CSV export).
+  The dashboard shows the same summary for the month picked in the monthly summary.
+- **Cost of the items sold** is worked out in one of two ways, shown on every month:
+  - **Stock counted**: opening stock + purchases (after vendor returns) − closing stock. Exact, including
+    waste and labour in stock. Used when the month and the month before both have a stock count.
+  - **Estimate**: quantity sold × each product's **cost price**, until the month is counted (always the case
+    for the month in progress). Products without a cost price are listed, and their cost is left out.
+- **Stock** (`/stock`): at the end of each month enter the raw material and finished goods in hand
+  (item, quantity, unit, rate). That is the month's closing stock and the next month's opening stock. A new
+  count copies the items and rates of the last one.
+- **Cost prices** (`/profit/cost-prices`): what one unit of each saved product costs you to make, with the
+  margin at its sale rate. kg and tons are converted.
+- **Expenses** (`/expenses`): expenses with a category (rent, salaries…), owner **investment** (money put in)
+  and owner **withdrawal** (money taken out), by month or year, with CSV export. Investment and withdrawals
+  are not income or expenses, so they never change profit.
+- In the database: `materials.cost_price`, `business_entries` (`kind` expense / investment / withdrawal) and
+  `stock_counts` (one per month, lines in `items`). The calculation is in `lib/profit.ts`.
 
 ## Users and roles
 

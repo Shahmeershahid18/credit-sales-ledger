@@ -10,6 +10,7 @@ import { YearPicker } from '@/components/YearPicker';
 import { StatCard } from '@/components/StatCard';
 import { CsvExportButton } from '@/components/CsvExportButton';
 import { EmptyState, PageHeader, buttonClass, cardClass } from '@/components/ui';
+import { TabNav } from '@/components/TabNav';
 import { Plus, Undo2, Users, Hash } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -21,25 +22,6 @@ interface ReturnsPageProps {
 }
 
 const SIDE_LABELS = { customer: 'Customer returns', vendor: 'Vendor returns' } as const;
-
-function TabNav({ label, items }: { label: string; items: { label: string; href: string; active: boolean }[] }) {
-  return (
-    <nav aria-label={label} className="flex gap-1 p-1 rounded-lg bg-zinc-100 w-fit">
-      {items.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          aria-current={item.active ? 'page' : undefined}
-          className={`h-8 px-3 sm:px-4 rounded-md text-sm font-medium flex items-center whitespace-nowrap ${
-            item.active ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
-          }`}
-        >
-          {item.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
 
 /**
  * Customer returns and vendor returns for a month or a year, date-wise (every return)

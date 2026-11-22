@@ -60,7 +60,90 @@ export type Material = {
   unit: string;
   rate: number | null; // sale rate
   purchase_rate: number | null;
+  cost_price: number | null; // what one unit of this product costs you to make
   created_at: string;
+};
+
+// ---------------------------------------------------------------------------
+// Profit and loss
+// ---------------------------------------------------------------------------
+
+// expense: lowers net profit; investment / withdrawal: owner's money in or out, not profit
+export type BusinessEntryKind = 'expense' | 'investment' | 'withdrawal';
+
+export type BusinessEntry = {
+  id: string;
+  kind: BusinessEntryKind;
+  entry_date: string; // YYYY-MM-DD
+  amount: number;
+  category: string | null; // expenses: rent, salaries…
+  notes: string | null;
+  created_at: string;
+};
+
+/** One line of a stock count: raw material or finished goods in hand */
+export type StockItem = {
+  kind: 'raw' | 'finished';
+  name: string;
+  quantity: number;
+  unit: string;
+  rate: number; // value per unit
+  amount: number; // quantity × rate
+};
+
+/** The stock in hand at the end of a month: the closing stock of that month */
+export type StockCount = {
+  id: string;
+  month: string; // YYYY-MM
+  items: StockItem[];
+  total: number;
+  notes: string | null;
+  updated_at: string;
+};
+
+/**
+ * One month's profit. Cost of goods sold comes from the stock counts when both the
+ * month and the month before are counted ('stock'); otherwise from the products'
+ * cost prices ('estimate').
+ */
+export type ProfitMonth = {
+  month: string; // YYYY-MM
+  sales: number; // sales made (opening balances not included)
+  customerReturns: number;
+  netSales: number; // sales − customer returns
+  purchases: number;
+  vendorReturns: number;
+  netPurchases: number; // purchases − vendor returns
+  openingStock: number | null; // the month before's count
+  closingStock: number | null; // this month's count
+  method: 'stock' | 'estimate';
+  costOfSales: number; // the figure used: from stock, or the estimate
+  estimatedCost: number; // from cost prices (always worked out)
+  uncosted: { name: string; amount: number }[]; // sales of products with no usable cost price
+  grossProfit: number; // net sales − cost of sales
+  expenses: number;
+  netProfit: number; // gross profit − expenses
+  invested: number;
+  withdrawn: number;
+};
+
+/** Item-wise margin of the products sold in a month, from their cost prices */
+export type ItemMargin = {
+  key: string;
+  name: string;
+  unit: string; // the saved product's unit (sales in kg are counted as tons and the other way round)
+  quantity: number;
+  sales: number;
+  costPrice: number | null;
+  cost: number | null; // null when the cost price is missing or the unit does not match
+};
+
+export type ProfitReport = {
+  month: ProfitMonth;
+  previous: ProfitMonth;
+  history: ProfitMonth[]; // oldest first, ending with `month`
+  items: ItemMargin[];
+  expensesByCategory: { category: string; amount: number }[]; // largest first
 };
 
 /**

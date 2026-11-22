@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/database';
+import type { Database, Json } from '@/types/database';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getAuthState, toProfile } from '@/lib/auth';
 import {
@@ -22,9 +22,12 @@ import {
   topBalances,
   buildQuantityHistory,
 } from './store';
+import { buildItemMargins, buildProfitMonths, expensesByCategory, stockTotal, type ProfitInputs } from './profit';
 import { ContactKind, SIDES } from './contacts';
 import {
   AgingRow,
+  BusinessEntry,
+  BusinessEntryKind,
   Customer,
   CreditSale,
   CustomerLedger,
@@ -42,13 +45,17 @@ import {
   PartyEntryType,
   PartyLedger,
   PartyStatement,
+  ProfitMonth,
+  ProfitReport,
   QuantityHistory,
   ReturnEntry,
   Payment,
   PaymentMethod,
+  StockCount,
+  StockItem,
   UserListItem,
 } from './types';
-import { addDays, calculateDueDate, daysBetween, formatDate, formatRs, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart } from './format';
+import { addDays, calculateDueDate, daysBetween, formatDate, formatRs, getCurrentMonthStr, getTodayDateStr, monthRange, nextMonthStart, shiftMonth } from './format';
 
 // All DB reads and writes live here. When Supabase is configured they go to the
 // database (views + monthly_report RPC), scoped to one user's ledger; otherwise they
@@ -810,7 +817,7 @@ export async function getCustomerSaleOptions(customerId: string, kind: ContactKi
 type MaterialRow = Database['public']['Tables']['materials']['Row'];
 type MaterialInput = { name: string; unit: string; rate: number | null; purchase_rate: number | null };
 
-const LATEST_MIGRATION = 'supabase/migrations/20261118000000_returns.sql';
+const LATEST_MIGRATION = 'supabase/migrations/20261122000000_profit.sql';
 
 /**
  * True when a PostgREST error means a table or column from a newer migration is missing
@@ -819,9 +826,12 @@ function isMissingSchema(error: { code?: string; message: string }) {
   return ['PGRST205', 'PGRST204', '42P01', '42703'].includes(error.code ?? '') || /schema cache|does not exist/i.test(error.message);
 }
 
+/** A table or column from a newer migration is missing */
+class SchemaUpdateError extends Error {}
+
 function schemaError(error: { code?: string; message: string }): Error {
   if (isMissingSchema(error)) {
-    return new Error(`The database needs an update. Run ${LATEST_MIGRATION} in the Supabase SQL Editor.`);
+    return new SchemaUpdateError(`The database needs an update. Run ${LATEST_MIGRATION} in the Supabase SQL Editor.`);
   }
   return new Error(error.message);
 }
@@ -840,6 +850,7 @@ function toMaterial(r: MaterialRow): Material {
     unit: r.unit,
     rate: r.rate === null ? null : num(r.rate),
     purchase_rate: r.purchase_rate === null || r.purchase_rate === undefined ? null : num(r.purchase_rate),
+    cost_price: r.cost_price === null || r.cost_price === undefined ? null : num(r.cost_price),
     created_at: r.created_at,
   };
 }
@@ -871,7 +882,7 @@ export async function createMaterial(input: MaterialInput): Promise<Material> {
   if (!ctx) {
     const list = getDemoData().materials;
     if (list.some((m) => sameName(m.name, input.name))) throw new Error('A material with this name already exists.');
-    const material: Material = { id: newDemoId('mat'), ...input, created_at: new Date().toISOString() };
+    const material: Material = { id: newDemoId('mat'), ...input, cost_price: null, created_at: new Date().toISOString() };
     list.push(material);
     return material;
   }
@@ -1681,6 +1692,352 @@ export async function mergeParties(keepId: string, mergeId: string): Promise<voi
   if (!UUID_RE.test(keepId) || !UUID_RE.test(mergeId)) throw new Error('Party not found');
   const { error } = await ctx.db.rpc('merge_parties', { p_keep: keepId, p_merge: mergeId });
   if (error) throw schemaError(error);
+}
+
+// ---------------------------------------------------------------------------
+// Profit and loss: expenses and owner's money, month-end stock counts, cost prices
+// ---------------------------------------------------------------------------
+
+type BusinessEntryRow = Database['public']['Tables']['business_entries']['Row'];
+type StockCountRow = Database['public']['Tables']['stock_counts']['Row'];
+
+export type BusinessEntryInput = {
+  kind: BusinessEntryKind;
+  entry_date: string;
+  amount: number;
+  category: string | null;
+  notes: string | null;
+};
+export type StockCountInput = { items: Omit<StockItem, 'amount'>[]; notes: string | null };
+
+const toEntryKind = (v: string): BusinessEntryKind => (v === 'investment' || v === 'withdrawal' ? v : 'expense');
+const monthStart = (month: string) => `${month}-01`;
+
+function toBusinessEntry(r: BusinessEntryRow): BusinessEntry {
+  return {
+    id: r.id,
+    kind: toEntryKind(r.kind),
+    entry_date: r.entry_date,
+    amount: num(r.amount),
+    category: r.category,
+    notes: r.notes,
+    created_at: r.created_at,
+  };
+}
+
+function toStockItems(value: Json): StockItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((x): StockItem[] => {
+    if (!x || typeof x !== 'object' || Array.isArray(x)) return [];
+    const quantity = num(x.quantity as number | string | null);
+    const rate = num(x.rate as number | string | null);
+    return [
+      {
+        kind: x.kind === 'finished' ? 'finished' : 'raw',
+        name: String(x.name ?? ''),
+        quantity,
+        unit: String(x.unit ?? ''),
+        rate,
+        amount: quantity * rate,
+      },
+    ];
+  });
+}
+
+function toStockCount(r: StockCountRow): StockCount {
+  return {
+    id: r.id,
+    month: r.month.slice(0, 7),
+    items: toStockItems(r.items),
+    total: num(r.total),
+    notes: r.notes,
+    updated_at: r.updated_at,
+  };
+}
+
+/** A count's lines with their amounts, and the total */
+function stockValues(input: StockCountInput) {
+  const items: StockItem[] = input.items.map((i) => ({ ...i, amount: Math.round(i.quantity * i.rate * 100) / 100 }));
+  return { items, total: stockTotal(items) };
+}
+
+/**
+ * Everything the profit figures need for the months `from` to `to` (YYYY-MM), or null
+ * when the profit migration has not been run yet
+ */
+async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs | null> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    const d = getDemoData();
+    return {
+      sales: d.sales,
+      returns: d.payments.filter((p) => p.method === 'return'),
+      entries: d.businessEntries,
+      counts: d.stockCounts,
+      materials: d.materials,
+    };
+  }
+
+  const { db, ownerId } = ctx;
+  const start = monthStart(from);
+  const end = nextMonthStart(to);
+  try {
+    const [sales, returns, entries, counts, materials] = await Promise.all([
+      fetchAll((a, b) =>
+        db
+          .from('credit_sales')
+          .select('id, kind, sale_date, material, quantity, unit, amount, is_opening')
+          .eq('owner_id', ownerId)
+          .eq('is_opening', false)
+          .gte('sale_date', start)
+          .lt('sale_date', end)
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll((a, b) =>
+        db
+          .from('payments')
+          .select('id, kind, payment_date, amount, sale_id, is_opening')
+          .eq('owner_id', ownerId)
+          .eq('method', 'return')
+          .gte('payment_date', start)
+          .lt('payment_date', end)
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll((a, b) =>
+        db
+          .from('business_entries')
+          .select('id, kind, entry_date, amount, category')
+          .eq('owner_id', ownerId)
+          .gte('entry_date', start)
+          .lt('entry_date', end)
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll((a, b) =>
+        db
+          .from('stock_counts')
+          .select('id, month, total')
+          .eq('owner_id', ownerId)
+          .gte('month', monthStart(shiftMonth(from, -1)))
+          .lt('month', end)
+          .order('id')
+          .range(a, b)
+      ),
+      fetchAll((a, b) => db.from('materials').select('id, name, unit, cost_price').eq('owner_id', ownerId).order('id').range(a, b)),
+    ]);
+    return {
+      sales: sales.map((s) => ({ ...s, kind: toKind(s.kind), unit: s.unit ?? '', quantity: num(s.quantity), amount: num(s.amount) })),
+      returns: returns.map((r) => ({ ...r, kind: toKind(r.kind), amount: num(r.amount) })),
+      entries: entries.map((e) => ({ ...e, kind: toEntryKind(e.kind), amount: num(e.amount) })),
+      counts: counts.map((c) => ({ month: c.month.slice(0, 7), total: num(c.total) })),
+      materials: materials.map((m) => ({ ...m, cost_price: m.cost_price === null ? null : num(m.cost_price) })),
+    };
+  } catch (err) {
+    if (err instanceof SchemaUpdateError) return null;
+    throw err;
+  }
+}
+
+/** Profit for each month from `from` to `to` (YYYY-MM), oldest first; null before the profit migration */
+export async function getProfitMonths(from: string, to: string): Promise<ProfitMonth[] | null> {
+  const inputs = await loadProfitInputs(from, to);
+  return inputs && buildProfitMonths(monthRange(from, to), inputs);
+}
+
+/**
+ * The profit and loss of `month` (YYYY-MM): the month and the one before, the last
+ * `historyMonths` months for comparison, item-wise margins and expenses by category
+ */
+export async function getProfitReport(month: string, historyMonths = 12): Promise<ProfitReport | null> {
+  const from = shiftMonth(month, -(Math.max(2, historyMonths) - 1));
+  const inputs = await loadProfitInputs(from, month);
+  if (!inputs) return null;
+  const history = buildProfitMonths(monthRange(from, month), inputs);
+  return {
+    month: history[history.length - 1],
+    previous: history[history.length - 2],
+    history,
+    items: buildItemMargins(month, inputs.sales, inputs.materials),
+    expensesByCategory: expensesByCategory(month, inputs.entries),
+  };
+}
+
+/** Expenses, investments and withdrawals dated from `start` up to (not including) `end`, newest first */
+export async function getBusinessEntries(start: string, end: string): Promise<BusinessEntry[]> {
+  const ctx = await getCtx();
+  let entries: BusinessEntry[];
+  if (!ctx) {
+    entries = getDemoData().businessEntries.filter((e) => e.entry_date >= start && e.entry_date < end);
+  } else {
+    const rows = await fetchAll((a, b) =>
+      ctx.db
+        .from('business_entries')
+        .select('*')
+        .eq('owner_id', ctx.ownerId)
+        .gte('entry_date', start)
+        .lt('entry_date', end)
+        .order('id')
+        .range(a, b)
+    );
+    entries = rows.map(toBusinessEntry);
+  }
+  return [...entries].sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.created_at.localeCompare(a.created_at));
+}
+
+/** Expense categories used in the last year, most used first */
+export async function getExpenseCategories(): Promise<string[]> {
+  const today = getTodayDateStr();
+  const entries = await getBusinessEntries(addDays(today, -365), addDays(today, 1));
+  const counts = new Map<string, { name: string; count: number }>();
+  for (const e of entries) {
+    if (e.kind !== 'expense' || !e.category) continue;
+    const key = e.category.trim().toLowerCase();
+    const c = counts.get(key) ?? { name: e.category.trim(), count: 0 };
+    c.count += 1;
+    counts.set(key, c);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count).map((c) => c.name);
+}
+
+export async function getBusinessEntryById(id: string): Promise<BusinessEntry | null> {
+  const ctx = await getCtx();
+  if (!ctx) return getDemoData().businessEntries.find((e) => e.id === id) ?? null;
+  if (!UUID_RE.test(id)) return null;
+  const { data, error } = await ctx.db.from('business_entries').select('*').eq('owner_id', ctx.ownerId).eq('id', id).maybeSingle();
+  if (error) throw schemaError(error);
+  return data ? toBusinessEntry(data) : null;
+}
+
+export async function createBusinessEntry(input: BusinessEntryInput): Promise<BusinessEntry> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    const entry: BusinessEntry = { id: newDemoId('bus'), ...input, created_at: new Date().toISOString() };
+    getDemoData().businessEntries.push(entry);
+    return entry;
+  }
+  const { data, error } = await ctx.db
+    .from('business_entries')
+    .insert({ ...input, owner_id: ctx.ownerId })
+    .select()
+    .single();
+  if (error) throw schemaError(error);
+  return toBusinessEntry(data);
+}
+
+export async function updateBusinessEntry(id: string, input: BusinessEntryInput): Promise<BusinessEntry> {
+  const missing = new Error('This entry no longer exists.');
+  const ctx = await getCtx();
+  if (!ctx) {
+    const entry = getDemoData().businessEntries.find((e) => e.id === id);
+    if (!entry) throw missing;
+    return Object.assign(entry, input);
+  }
+  if (!UUID_RE.test(id)) throw missing;
+  const { data, error } = await ctx.db
+    .from('business_entries')
+    .update(input)
+    .eq('id', id)
+    .eq('owner_id', ctx.ownerId)
+    .select()
+    .maybeSingle();
+  if (error) throw schemaError(error);
+  if (!data) throw missing;
+  return toBusinessEntry(data);
+}
+
+export async function deleteBusinessEntry(id: string): Promise<void> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    const list = getDemoData().businessEntries;
+    const index = list.findIndex((e) => e.id === id);
+    if (index >= 0) list.splice(index, 1);
+    return;
+  }
+  if (!UUID_RE.test(id)) return;
+  const { error } = await ctx.db.from('business_entries').delete().eq('id', id).eq('owner_id', ctx.ownerId);
+  if (error) throw schemaError(error);
+}
+
+/** Every month-end stock count, newest first */
+export async function getStockCounts(): Promise<StockCount[]> {
+  const ctx = await getCtx();
+  if (!ctx) return [...getDemoData().stockCounts].sort((a, b) => b.month.localeCompare(a.month));
+  const rows = await fetchAll((a, b) =>
+    ctx.db.from('stock_counts').select('*').eq('owner_id', ctx.ownerId).order('month', { ascending: false }).order('id').range(a, b)
+  );
+  return rows.map(toStockCount);
+}
+
+/** The stock count at the end of `month` (YYYY-MM), if there is one */
+export async function getStockCount(month: string): Promise<StockCount | null> {
+  const ctx = await getCtx();
+  if (!ctx) return getDemoData().stockCounts.find((c) => c.month === month) ?? null;
+  const { data, error } = await ctx.db
+    .from('stock_counts')
+    .select('*')
+    .eq('owner_id', ctx.ownerId)
+    .eq('month', monthStart(month))
+    .maybeSingle();
+  if (error) throw schemaError(error);
+  return data ? toStockCount(data) : null;
+}
+
+/** Saves (or replaces) the stock count at the end of `month` */
+export async function saveStockCount(month: string, input: StockCountInput): Promise<StockCount> {
+  const { items, total } = stockValues(input);
+  const updated_at = new Date().toISOString();
+  const ctx = await getCtx();
+  if (!ctx) {
+    const list = getDemoData().stockCounts;
+    const existing = list.find((c) => c.month === month);
+    if (existing) return Object.assign(existing, { items, total, notes: input.notes, updated_at });
+    const count: StockCount = { id: newDemoId('stk'), month, items, total, notes: input.notes, updated_at };
+    list.push(count);
+    return count;
+  }
+  const { data, error } = await ctx.db
+    .from('stock_counts')
+    .upsert({ owner_id: ctx.ownerId, month: monthStart(month), items, total, notes: input.notes, updated_at }, { onConflict: 'owner_id,month' })
+    .select()
+    .single();
+  if (error) throw schemaError(error);
+  return toStockCount(data);
+}
+
+export async function deleteStockCount(month: string): Promise<void> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    const list = getDemoData().stockCounts;
+    const index = list.findIndex((c) => c.month === month);
+    if (index >= 0) list.splice(index, 1);
+    return;
+  }
+  const { error } = await ctx.db.from('stock_counts').delete().eq('owner_id', ctx.ownerId).eq('month', monthStart(month));
+  if (error) throw schemaError(error);
+}
+
+/** Sets (or clears, with null) a product's cost price */
+export async function setCostPrice(materialId: string, costPrice: number | null): Promise<Material> {
+  const ctx = await getCtx();
+  if (!ctx) {
+    const material = getDemoData().materials.find((m) => m.id === materialId);
+    if (!material) throw new Error('Material not found');
+    material.cost_price = costPrice;
+    return material;
+  }
+  if (!UUID_RE.test(materialId)) throw new Error('Material not found');
+  const { data, error } = await ctx.db
+    .from('materials')
+    .update({ cost_price: costPrice })
+    .eq('id', materialId)
+    .eq('owner_id', ctx.ownerId)
+    .select()
+    .maybeSingle();
+  if (error) throw schemaError(error);
+  if (!data) throw new Error('Material not found');
+  return toMaterial(data);
 }
 
 // ---------------------------------------------------------------------------

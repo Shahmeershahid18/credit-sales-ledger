@@ -114,7 +114,7 @@ function Figure({
  * "▲ 12% vs Sep". Rises in sales and collections are green and falls red; for
  * purchases and payments made the arrow stays neutral.
  */
-function PctChange({ value, prev, vs, upIsGood = false }: { value: number; prev: number; vs: string; upIsGood?: boolean }) {
+export function PctChange({ value, prev, vs, upIsGood = false }: { value: number; prev: number; vs: string; upIsGood?: boolean }) {
   if (prev === 0) {
     return <span className="text-zinc-400">{value > 0 ? `New vs ${vs}` : `No change vs ${vs}`}</span>;
   }
@@ -131,7 +131,7 @@ function PctChange({ value, prev, vs, upIsGood = false }: { value: number; prev:
 }
 
 /** "+Rs. 50,000 vs Sep": net cash can be negative, so the change is shown as an amount */
-function AmountChange({ value, prev, vs }: { value: number; prev: number; vs: string }) {
+export function AmountChange({ value, prev, vs }: { value: number; prev: number; vs: string }) {
   const diff = value - prev;
   if (diff === 0) return <span className="text-zinc-400">Same as {vs}</span>;
   return (

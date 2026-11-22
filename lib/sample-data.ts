@@ -1,5 +1,6 @@
-import { Customer, CreditSale, Material, Payment } from './types';
-import { addDays, calculateDueDate, getTodayDateStr } from './format';
+import { BusinessEntry, Customer, CreditSale, Material, Payment, StockCount, StockItem } from './types';
+import { addDays, calculateDueDate, getTodayDateStr, shiftMonth } from './format';
+import { stockTotal } from './profit';
 
 /**
  * Demo records with dates relative to today so overdue calculations always look realistic.
@@ -11,6 +12,8 @@ export function createSampleData(): {
   sales: CreditSale[];
   payments: Payment[];
   materials: Material[];
+  businessEntries: BusinessEntry[];
+  stockCounts: StockCount[];
 } {
   const today = getTodayDateStr();
   const daysAgo = (days: number) => addDays(today, -days);
@@ -112,12 +115,66 @@ export function createSampleData(): {
     const isSale = s.kind === 'customer';
     let m = materials.find((x) => x.name === s.material);
     if (!m) {
-      m = { id: `mat-${materials.length + 1}`, name: s.material, unit: s.unit, rate: null, purchase_rate: null, created_at: s.created_at };
+      m = { id: `mat-${materials.length + 1}`, name: s.material, unit: s.unit, rate: null, purchase_rate: null, cost_price: null, created_at: s.created_at };
       materials.push(m);
     }
     if (isSale) m.rate = s.rate;
     else m.purchase_rate = s.rate;
   }
 
-  return { customers, sales, payments, materials };
+  // What each product costs to make or buy, for the profit estimate
+  const COST_PRICES: Record<string, number> = {
+    'DG Cement Bags': 1350,
+    'Bestway Cement Bags': 1210,
+    'Steel Rebars (Grade 60)': 138000,
+    'Heavy Steel Beams': 142000,
+    'Fine River Sand': 22000,
+    'Crush / Aggregate': 52000,
+    'Paints & Primers': 4700,
+  };
+  for (const m of materials) m.cost_price = COST_PRICES[m.name] ?? null;
+
+  const thisMonth = today.slice(0, 7);
+  const months = [-3, -2, -1, 0].map((d) => shiftMonth(thisMonth, d));
+  const dayOf = (month: string, day: number) => `${month}-${String(day).padStart(2, '0')}`;
+
+  // Rent, salaries and bills each month; starting capital and one withdrawal
+  const businessEntries: BusinessEntry[] = [];
+  const entry = (kind: BusinessEntry['kind'], date: string, amount: number, category: string | null, notes: string | null) => {
+    if (date > today) return;
+    businessEntries.push({ id: `bus-${businessEntries.length + 1}`, kind, entry_date: date, amount, category, notes, created_at: `${date}T09:00:00.000Z` });
+  };
+  entry('investment', dayOf(months[0], 1), 1500000, null, 'Starting capital');
+  for (const m of months.slice(1)) {
+    entry('expense', dayOf(m, 1), 25000, 'Rent', 'Shop and yard');
+    entry('expense', dayOf(m, 2), 60000, 'Salaries', '3 staff');
+    entry('expense', dayOf(m, 10), 9500, 'Electricity', null);
+    entry('expense', dayOf(m, 15), 12000, 'Transport', 'Loader and fuel');
+  }
+  entry('withdrawal', dayOf(months[2], 28), 40000, null, 'Household');
+
+  // Month-end stock counts for the three months before this one; this month is not counted yet
+  const ITEMS: Omit<StockItem, 'quantity' | 'amount'>[] = [
+    { kind: 'raw', name: 'Steel billets', unit: 'ton', rate: 135000 },
+    { kind: 'raw', name: 'Cement (loose)', unit: 'bag', rate: 1250 },
+    { kind: 'finished', name: 'Steel Rebars (Grade 60)', unit: 'ton', rate: 138000 },
+    { kind: 'finished', name: 'DG Cement Bags', unit: 'bag', rate: 1350 },
+  ];
+  const countOf = (month: string, value: number): StockCount => {
+    const items = ITEMS.map((i) => {
+      const quantity = i.unit === 'ton' ? Math.round((value / 4 / i.rate) * 10) / 10 : Math.round(value / 4 / i.rate);
+      return { ...i, quantity, amount: quantity * i.rate };
+    });
+    return { id: `stk-${month}`, month, items, total: stockTotal(items), notes: null, updated_at: `${dayOf(month, 28)}T18:00:00.000Z` };
+  };
+  const monthTotal = (month: string, kind: CreditSale['kind']) =>
+    sales.filter((s) => s.kind === kind && s.sale_date.startsWith(month)).reduce((t, s) => t + s.amount, 0);
+  const stockCounts: StockCount[] = [countOf(months[0], 900000)];
+  for (const m of months.slice(1, 3)) {
+    // Closing = opening + purchases − about 78% of sales (the cost of what was sold)
+    const closing = stockCounts[stockCounts.length - 1].total + monthTotal(m, 'vendor') - 0.78 * monthTotal(m, 'customer');
+    stockCounts.push(countOf(m, Math.max(200000, closing)));
+  }
+
+  return { customers, sales, payments, materials, businessEntries, stockCounts };
 }

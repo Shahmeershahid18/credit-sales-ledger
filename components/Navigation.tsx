@@ -16,6 +16,9 @@ import {
   CalendarClock,
   ShoppingCart,
   Undo2,
+  TrendingUp,
+  Receipt,
+  Boxes,
 } from 'lucide-react';
 import { signOutAction } from '@/app/actions/auth';
 import { Logo } from './Logo';
@@ -44,12 +47,16 @@ const vendorsItem: NavItem = { label: 'Vendors', href: '/vendors', icon: Truck, 
 const billsItem: NavItem = { label: 'Bills to pay', href: '/bills', icon: CalendarClock, match: starts('/bills') };
 const reportItem: NavItem = { label: 'Report', href: '/reports', icon: FileBarChart, match: starts('/reports') };
 const returnsItem: NavItem = { label: 'Returns', href: '/returns', icon: Undo2, match: starts('/returns') };
+const profitItem: NavItem = { label: 'Profit & loss', href: '/profit', icon: TrendingUp, match: starts('/profit') };
+const expensesItem: NavItem = { label: 'Expenses', href: '/expenses', icon: Receipt, match: starts('/expenses') };
+const stockItem: NavItem = { label: 'Stock', href: '/stock', icon: Boxes, match: starts('/stock') };
 
 const sidebarSections: { title?: string; items: NavItem[] }[] = [
   { items: [dashboardItem] },
   { title: 'Sales', items: [customersItem, overdueItem] },
   { title: 'Purchases', items: [vendorsItem, billsItem] },
   { title: 'Reports', items: [reportItem, returnsItem] },
+  { title: 'Profit', items: [profitItem, expensesItem, stockItem] },
 ];
 
 const mobileTabs = [dashboardItem, customersItem, vendorsItem, overdueItem, reportItem];
@@ -61,6 +68,7 @@ const quickActions = [
   { label: 'Pay vendor', href: '/vendor-payments/new', icon: ArrowUpRight },
   { label: 'Customer return', href: '/returns/new', icon: Undo2 },
   { label: 'Vendor return', href: '/returns/new?side=vendor', icon: Undo2 },
+  { label: 'Expense', href: '/expenses/new', icon: Receipt },
 ];
 
 const sidebarLink = (active: boolean) =>

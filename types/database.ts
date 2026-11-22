@@ -6,6 +6,8 @@
  *   npx supabase gen types typescript --project-id YOUR_PROJECT_ID > types/database.ts
  */
 
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+
 export type Database = {
   public: {
     Tables: {
@@ -188,6 +190,7 @@ export type Database = {
           unit: string;
           rate: number | null;
           purchase_rate: number | null;
+          cost_price: number | null;
           created_at: string;
         };
         Insert: {
@@ -197,6 +200,7 @@ export type Database = {
           unit?: string;
           rate?: number | null;
           purchase_rate?: number | null;
+          cost_price?: number | null;
           created_at?: string;
         };
         Update: {
@@ -206,7 +210,74 @@ export type Database = {
           unit?: string;
           rate?: number | null;
           purchase_rate?: number | null;
+          cost_price?: number | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      business_entries: {
+        Row: {
+          id: string;
+          owner_id: string;
+          kind: string;
+          entry_date: string;
+          amount: number;
+          category: string | null;
+          notes: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id?: string;
+          kind: string;
+          entry_date: string;
+          amount: number;
+          category?: string | null;
+          notes?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          kind?: string;
+          entry_date?: string;
+          amount?: number;
+          category?: string | null;
+          notes?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      stock_counts: {
+        Row: {
+          id: string;
+          owner_id: string;
+          month: string;
+          items: Json;
+          total: number;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id?: string;
+          month: string;
+          items?: Json;
+          total: number;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          month?: string;
+          items?: Json;
+          total?: number;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };

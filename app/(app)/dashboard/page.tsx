@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getDashboard, getMonthFlows } from '@/lib/queries';
+import { getDashboard, getMonthFlows, getProfitMonths } from '@/lib/queries';
 import { ContactKind, SIDES } from '@/lib/contacts';
 import { formatDate, formatRs, getCurrentMonthStr, getTodayDateStr, isValidMonthStr, shiftMonth } from '@/lib/format';
 import { StatCard } from '@/components/StatCard';
@@ -9,8 +9,9 @@ import { AgingChart } from '@/components/AgingChart';
 import { TopCustomersChart } from '@/components/TopCustomersChart';
 import { MonthlySummary } from '@/components/MonthlySummary';
 import { MonthlyTrendChart } from '@/components/MonthlyTrendChart';
+import { ProfitSummary } from '@/components/ProfitSummary';
 import { PageHeader, buttonClass, cardClass } from '@/components/ui';
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, Plus, Scale, Truck, UserPlus } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, Plus, Receipt, Scale, TrendingUp, Truck, UserPlus } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -31,7 +32,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const trendFrom = shiftMonth(currentMonth, -(TREND_MONTHS - 1));
   const flowsFrom = [trendFrom, shiftMonth(summaryMonth, -1)].sort()[0];
 
-  const [data, flows] = await Promise.all([getDashboard(), getMonthFlows(flowsFrom, currentMonth)]);
+  const [data, flows, profit] = await Promise.all([
+    getDashboard(),
+    getMonthFlows(flowsFrom, currentMonth),
+    getProfitMonths(shiftMonth(summaryMonth, -1), summaryMonth),
+  ]);
   const trend = flows.filter((f) => f.month >= trendFrom);
   const flowOf = (m: string) => flows.find((f) => f.month === m)!;
 
@@ -121,6 +126,34 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           >
             <MonthlyTrendChart data={trend} selected={summaryMonth} query={side === 'vendor' ? 'side=vendor' : undefined} />
           </MonthlySummary>
+
+          {profit ? (
+            <ProfitSummary
+              month={profit[1]}
+              previous={profit[0]}
+              isCurrentMonth={summaryMonth === currentMonth}
+              actions={
+                <>
+                  <Link href="/expenses/new" aria-label="Add expense" className="h-9 px-2.5 rounded-lg text-sm font-medium text-zinc-600 hover:bg-zinc-100 inline-flex items-center gap-1.5">
+                    <Receipt className="w-4 h-4" />
+                    <span className="hidden sm:inline">Add expense</span>
+                  </Link>
+                  <Link
+                    href={`/profit?month=${summaryMonth}`}
+                    className="h-9 px-2.5 rounded-lg text-sm font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1.5"
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    Profit report
+                  </Link>
+                </>
+              }
+            />
+          ) : (
+            <p className={`${cardClass} px-4 py-3 text-sm text-amber-800`}>
+              Profit and loss needs a database update: run <code className="font-mono text-xs">supabase/migrations/20261122000000_profit.sql</code> in the
+              Supabase SQL Editor.
+            </p>
+          )}
 
           <section className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
