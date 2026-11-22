@@ -183,5 +183,12 @@ export function createSampleData(): {
     { id: 'cpr-2', customer_id: 'vend-2', material: 'DG Cement Bags', unit: 'bag', sale_rate: 1500, cost_price: null, updated_at: createdAt(13) },
   ];
 
+  // Each sale keeps the cost it was recorded with: the customer's own cost price, else the general one
+  for (const s of sales) {
+    if (s.kind !== 'customer') continue;
+    const own = customerPrices.find((p) => p.customer_id === s.customer_id && p.material === s.material)?.cost_price;
+    s.cost_rate = own ?? COST_PRICES[s.material] ?? null;
+  }
+
   return { customers, sales, payments, materials, businessEntries, stockCounts, customerPrices };
 }

@@ -294,7 +294,7 @@ function ItemMargins({ report }: { report: ProfitReport }) {
       <div className="px-4 py-3 border-b border-zinc-100 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-900">Item-wise margin</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">Products sold, at their cost prices (a customer&apos;s own first)</p>
+          <p className="text-xs text-zinc-500 mt-0.5">Products sold, at the cost saved with each sale</p>
         </div>
         <Link href="/profit/cost-prices" className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap">
           Cost prices
@@ -312,7 +312,7 @@ function ItemMargins({ report }: { report: ProfitReport }) {
                   <p className="text-sm font-medium text-zinc-900 truncate">{i.name}</p>
                   <p className="text-xs text-zinc-500">
                     {formatQuantity(i.quantity)} {i.unit} · sold {formatRs(i.sales)}
-                    {i.customerPriced ? ' · cost varies by customer' : i.costPrice !== null && ` · cost ${formatRs(i.costPrice)}/${i.unit}`}
+                    {i.costVaries ? ' · cost varies' : i.costPrice !== null && ` · cost ${formatRs(i.costPrice)}/${i.unit}`}
                   </p>
                 </div>
                 {margin === null ? (

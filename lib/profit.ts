@@ -7,13 +7,17 @@ import { shiftMonth, unitGroup } from './format';
 //   * 'stock':    opening stock + purchases − closing stock, when the month and the month
 //                 before both have a stock count. Exact: it includes waste and every cost
 //                 that went into stock.
-//   * 'estimate': quantity sold × the product's cost price, until the month is counted. A
-//                 customer's own cost price for the product wins over the general one.
+//   * 'estimate': quantity sold × the cost, until the month is counted. The cost saved with
+//                 the sale wins; sales without one use the customer's own cost price, else
+//                 the general one.
 // Customer returns lower sales (and their cost, in the estimate); vendor returns lower
 // purchases. Opening balances are not sales or purchases. Owner investment and
 // withdrawals are not income or expenses.
 
-export type ProfitSale = Pick<CreditSale, 'id' | 'customer_id' | 'kind' | 'sale_date' | 'material' | 'quantity' | 'unit' | 'amount' | 'is_opening'>;
+export type ProfitSale = Pick<
+  CreditSale,
+  'id' | 'customer_id' | 'kind' | 'sale_date' | 'material' | 'quantity' | 'unit' | 'amount' | 'is_opening' | 'cost_rate'
+>;
 export type ProfitReturn = Pick<Payment, 'customer_id' | 'kind' | 'payment_date' | 'amount' | 'sale_id' | 'is_opening'>; // method 'return' only
 export type ProfitEntry = Pick<BusinessEntry, 'kind' | 'entry_date' | 'amount' | 'category'>;
 export type ProfitCount = Pick<StockCount, 'month' | 'total'>;
@@ -87,8 +91,9 @@ export function costPriceFor(customerId: string, material: string, book: CostBoo
   return { unit: product.unit, cost_price: Number(product.cost_price), own: false };
 }
 
-/** What a sale cost you, at its cost price; null without a usable cost price */
-export function saleCost(sale: Pick<ProfitSale, 'customer_id' | 'material' | 'quantity' | 'unit'>, book: CostBook): number | null {
+/** What a sale cost you: its saved cost, else the cost price; null without a usable one */
+export function saleCost(sale: Pick<ProfitSale, 'customer_id' | 'material' | 'quantity' | 'unit' | 'cost_rate'>, book: CostBook): number | null {
+  if (sale.cost_rate !== null && sale.cost_rate !== undefined) return Number(sale.quantity) * Number(sale.cost_rate);
   const price = costPriceFor(sale.customer_id, sale.material, book);
   if (!price) return null;
   const qty = convertQuantity(Number(sale.quantity), sale.unit, price.unit);
@@ -184,7 +189,7 @@ export function buildProfitMonths(months: string[], input: ProfitInputs): Profit
 
 /** Each product sold in `month`: quantity, sales, cost at its cost price and margin */
 export function buildItemMargins(month: string, sales: ProfitSale[], costs: CostBook): ItemMargin[] {
-  const items = new Map<string, ItemMargin & { complete: boolean }>();
+  const items = new Map<string, ItemMargin & { complete: boolean; unitCosts: Set<number> }>();
 
   for (const s of sales) {
     if (s.kind !== 'customer' || s.is_opening || !inMonth(s.sale_date, month)) continue;
@@ -197,21 +202,31 @@ export function buildItemMargins(month: string, sales: ProfitSale[], costs: Cost
       quantity: 0,
       sales: 0,
       costPrice: product?.cost_price ?? null,
-      customerPriced: false,
+      costVaries: false,
       cost: 0,
       complete: true,
+      unitCosts: new Set<number>(),
     };
-    if (costPriceFor(s.customer_id, s.material, costs)?.own) item.customerPriced = true;
-    item.quantity += convertQuantity(Number(s.quantity), s.unit, item.unit) ?? 0;
+    const qty = convertQuantity(Number(s.quantity), s.unit, item.unit);
+    item.quantity += qty ?? 0;
     item.sales += Number(s.amount);
     const cost = saleCost(s, costs);
     if (cost === null) item.complete = false;
-    else item.cost = (item.cost ?? 0) + cost;
+    else {
+      item.cost = (item.cost ?? 0) + cost;
+      if (qty) item.unitCosts.add(Math.round((cost / qty) * 100) / 100);
+    }
     items.set(key, item);
   }
 
   return [...items.values()]
-    .map(({ complete, ...item }) => ({ ...item, cost: complete ? item.cost : null }))
+    // One cost per unit across its sales is shown; different costs (by customer or by date) are "varies"
+    .map(({ complete, unitCosts, ...item }) => ({
+      ...item,
+      costPrice: unitCosts.size === 1 ? [...unitCosts][0] : item.costPrice,
+      costVaries: unitCosts.size > 1,
+      cost: complete ? item.cost : null,
+    }))
     .sort((a, b) => b.sales - a.sales || a.name.localeCompare(b.name));
 }
 
@@ -274,14 +289,38 @@ export function stockTotal(items: { quantity: number; rate: number }[]): number 
   return Math.round(total(items, (i) => i.quantity * i.rate) * 100) / 100;
 }
 
-/** The rate the sale form fills in for a customer's product: their own rate, else the last one charged */
-export type CustomerRate = { rate: number; unit: string; source: 'own' | 'last'; date: string | null };
+/**
+ * What the sale form fills in for one customer's product. Rate: their own sale rate, else
+ * the last rate charged. Cost: their own cost price, else the cost saved with their last
+ * sale of it. Either can be missing (then the general one is used).
+ */
+export type CustomerRate = {
+  rate: { value: number; unit: string; source: 'own' | 'last'; date: string | null } | null;
+  cost: { value: number; unit: string; source: 'own' | 'last'; date: string | null } | null;
+};
 
 export function toCustomerRates(rows: CustomerPriceRow[]): Record<string, CustomerRate> {
   const rates: Record<string, CustomerRate> = {};
   for (const r of rows) {
-    if (r.sale_rate !== null) rates[r.key] = { rate: r.sale_rate, unit: r.unit, source: 'own', date: null };
-    else if (r.last_rate !== null) rates[r.key] = { rate: r.last_rate, unit: r.last_unit ?? r.unit, source: 'last', date: r.last_date };
+    const rate =
+      r.sale_rate !== null
+        ? { value: r.sale_rate, unit: r.unit, source: 'own' as const, date: null }
+        : r.last_rate !== null
+        ? { value: r.last_rate, unit: r.last_unit ?? r.unit, source: 'last' as const, date: r.last_date }
+        : null;
+    const cost =
+      r.cost_price !== null
+        ? { value: r.cost_price, unit: r.unit, source: 'own' as const, date: null }
+        : r.last_cost !== null
+        ? { value: r.last_cost, unit: r.last_cost_unit ?? r.unit, source: 'last' as const, date: r.last_cost_date }
+        : null;
+    if (rate || cost) rates[r.key] = { rate, cost };
   }
   return rates;
+}
+
+/** A price per `from` unit expressed per `to` unit (Rs/ton → Rs/kg), or null when they cannot be compared */
+export function pricePer(value: number, from: string, to: string): number | null {
+  const share = convertQuantity(1, to, from); // how many `from` units are in one `to` unit
+  return share === null ? null : Math.round(value * share * 100) / 100;
 }

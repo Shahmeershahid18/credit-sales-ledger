@@ -38,7 +38,8 @@ login, and anything you add is lost when the server restarts. A banner in the ap
    9. `supabase/migrations/20261122000000_profit.sql` (cost prices, expenses, owner investment and
       withdrawals, month-end stock counts)
    10. `supabase/migrations/20261123000000_customer_prices.sql` (each customer's own sale rate and cost price)
-   11. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+   11. `supabase/migrations/20261124000000_sale_cost.sql` (the cost saved with each sale)
+   12. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
    The service role key is a secret used only on the server; never commit it.
@@ -122,6 +123,11 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   On that customer's sale form the rate filled in is their own rate, else the last rate they were charged, else
   the general rate. Their cost price is used for their sales in the profit estimate and in the item-wise and
   **customer-wise margin** on the Profit page. Stored in `customer_prices`; merging parties moves them.
+- **Cost saved with each sale.** The sale form has a **Cost price** field (sales only) filled in from the
+  customer's own cost price, else the cost of their last sale of that product, else the general cost price,
+  and shows the margin. It is saved with the sale (`credit_sales.cost_rate`) like the rate, so when prices
+  change (500/kg today, 800/kg tomorrow) past sales and past months' profit stay as they were. Profit uses
+  the saved cost first; sales without one use the current cost prices. Statements never show it.
 - **Expenses** (`/expenses`): expenses with a category (rent, salaries…), owner **investment** (money put in)
   and owner **withdrawal** (money taken out), by month or year, with CSV export. Investment and withdrawals
   are not income or expenses, so they never change profit.

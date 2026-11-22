@@ -22,7 +22,7 @@ import {
   topBalances,
   buildQuantityHistory,
 } from './store';
-import { buildCustomerMargins, buildItemMargins, buildProfitMonths, convertQuantity, costBook, expensesByCategory, stockTotal, type ProfitInputs } from './profit';
+import { buildCustomerMargins, buildItemMargins, buildProfitMonths, convertQuantity, costBook, expensesByCategory, stockTotal, type ProfitInputs, type ProfitSale } from './profit';
 import { ContactKind, SIDES } from './contacts';
 import {
   AgingRow,
@@ -149,6 +149,7 @@ function toSale(r: SaleRow): CreditSale {
     due_date: r.due_date,
     notes: r.notes,
     is_opening: r.is_opening ?? false,
+    cost_rate: r.cost_rate === null || r.cost_rate === undefined ? null : num(r.cost_rate),
     created_at: r.created_at,
   };
 }
@@ -819,7 +820,7 @@ export async function getCustomerSaleOptions(customerId: string, kind: ContactKi
 type MaterialRow = Database['public']['Tables']['materials']['Row'];
 type MaterialInput = { name: string; unit: string; rate: number | null; purchase_rate: number | null };
 
-const LATEST_MIGRATION = 'supabase/migrations/20261123000000_customer_prices.sql';
+const LATEST_MIGRATION = 'supabase/migrations/20261124000000_sale_cost.sql';
 
 /**
  * True when a PostgREST error means a table or column from a newer migration is missing
@@ -1071,6 +1072,7 @@ export async function createCreditSale(
     rate: number;
     credit_days: number;
     notes?: string | null;
+    cost_rate?: number | null; // sales only
   }
 ): Promise<CreditSale> {
   const values = {
@@ -1083,6 +1085,7 @@ export async function createCreditSale(
     rate: data.rate,
     credit_days: data.credit_days,
     notes: data.notes || null,
+    cost_rate: kind === 'customer' ? data.cost_rate ?? null : null,
   };
   const ctx = await getCtx();
   const party = await assertParty(ctx, data.customer_id, kind);
@@ -1100,12 +1103,11 @@ export async function createCreditSale(
     getDemoData().sales.push(sale);
   } else {
     // amount and due_date are generated columns in the database
-    const { data: row, error } = await ctx.db
-      .from('credit_sales')
-      .insert({ ...values, owner_id: ctx.ownerId })
-      .select()
-      .single();
-    if (error) throw new Error(error.code === '23503' ? `${SIDES[kind].One} not found` : error.message);
+    const insert = (v: Partial<typeof values>) => ctx.db.from('credit_sales').insert({ ...(v as typeof values), owner_id: ctx.ownerId }).select().single();
+    let { data: row, error } = await insert(values);
+    // Before the sale-cost migration there is no cost_rate column: save the sale without it
+    if (error && isMissingSchema(error)) ({ data: row, error } = await insert(withoutCost(values)));
+    if (error || !row) throw new Error(error?.code === '23503' ? `${SIDES[kind].One} not found` : error?.message ?? 'Failed to save');
     sale = toSale(row);
   }
 
@@ -1168,6 +1170,13 @@ export async function createPayment(
 }
 
 type SaleInput = Parameters<typeof createCreditSale>[1];
+
+/** A sale's values without cost_rate, for databases before the sale-cost migration */
+function withoutCost<T extends { cost_rate?: number | null }>(values: T): Omit<T, 'cost_rate'> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { cost_rate, ...rest } = values;
+  return rest;
+}
 type PaymentInput = Parameters<typeof createPayment>[1];
 
 const ADJUSTMENT_LOCKED = 'An adjustment cannot be edited. Delete it on the party page and use Adjust again.';
@@ -1283,6 +1292,7 @@ export async function updateCreditSale(kind: ContactKind, id: string, data: Sale
     rate: data.rate,
     credit_days: data.credit_days,
     notes: data.notes || null,
+    cost_rate: kind === 'customer' ? data.cost_rate ?? null : null,
   };
   const ctx = await getCtx();
   const party = await assertParty(ctx, data.customer_id, kind);
@@ -1321,14 +1331,10 @@ export async function updateCreditSale(kind: ContactKind, id: string, data: Sale
       if (unlinkError) throw schemaError(unlinkError);
     }
     // amount and due_date are generated columns in the database
-    const { data: row, error } = await db
-      .from('credit_sales')
-      .update(values)
-      .eq('id', id)
-      .eq('owner_id', ownerId)
-      .eq('kind', kind)
-      .select()
-      .maybeSingle();
+    const update = (v: Partial<typeof values>) =>
+      db.from('credit_sales').update(v).eq('id', id).eq('owner_id', ownerId).eq('kind', kind).select().maybeSingle();
+    let { data: row, error } = await update(values);
+    if (error && isMissingSchema(error)) ({ data: row, error } = await update(withoutCost(values)));
     if (error) throw new Error(error.code === '23503' ? `${terms.One} not found` : error.message);
     if (!row) throw missing;
     sale = toSale(row);
@@ -1768,6 +1774,25 @@ function stockValues(input: StockCountInput) {
 }
 
 /**
+ * Sales and purchases from `start` up to `end`. All columns are read, so each sale's saved
+ * cost comes along once the sale-cost migration has added it (before that it is empty).
+ */
+async function fetchProfitSales({ db, ownerId }: Ctx, start: string, end: string): Promise<ProfitSale[]> {
+  const rows = await fetchAll((a, b) =>
+    db
+      .from('credit_sales')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .eq('is_opening', false)
+      .gte('sale_date', start)
+      .lt('sale_date', end)
+      .order('id')
+      .range(a, b)
+  );
+  return rows.map(toSale);
+}
+
+/**
  * Everything the profit figures need for the months `from` to `to` (YYYY-MM), or null
  * when the profit migration has not been run yet
  */
@@ -1790,17 +1815,7 @@ async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs 
   const end = nextMonthStart(to);
   try {
     const [sales, returns, entries, counts, materials, customerCosts] = await Promise.all([
-      fetchAll((a, b) =>
-        db
-          .from('credit_sales')
-          .select('id, customer_id, kind, sale_date, material, quantity, unit, amount, is_opening')
-          .eq('owner_id', ownerId)
-          .eq('is_opening', false)
-          .gte('sale_date', start)
-          .lt('sale_date', end)
-          .order('id')
-          .range(a, b)
-      ),
+      fetchProfitSales(ctx, start, end),
       fetchAll((a, b) =>
         db
           .from('payments')
@@ -1836,7 +1851,7 @@ async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs 
       fetchCustomerPrices(ctx),
     ]);
     return {
-      sales: sales.map((s) => ({ ...s, kind: toKind(s.kind), unit: s.unit ?? '', quantity: num(s.quantity), amount: num(s.amount) })),
+      sales,
       returns: returns.map((r) => ({ ...r, kind: toKind(r.kind), amount: num(r.amount) })),
       entries: entries.map((e) => ({ ...e, kind: toEntryKind(e.kind), amount: num(e.amount) })),
       counts: counts.map((c) => ({ month: c.month.slice(0, 7), total: num(c.total) })),
@@ -2107,7 +2122,7 @@ export async function customerPricesAvailable(): Promise<boolean> {
 export async function getCustomerPriceList(customerId: string): Promise<CustomerPriceRow[]> {
   const ctx = await getCtx();
   let prices: CustomerPrice[];
-  let sales: Pick<CreditSale, 'material' | 'unit' | 'rate' | 'quantity' | 'sale_date' | 'is_opening'>[];
+  let sales: Pick<CreditSale, 'material' | 'unit' | 'rate' | 'quantity' | 'sale_date' | 'is_opening' | 'cost_rate'>[];
   let materials: Material[];
 
   if (!ctx) {
@@ -2122,7 +2137,7 @@ export async function getCustomerPriceList(customerId: string): Promise<Customer
       fetchAll((a, b) =>
         ctx.db
           .from('credit_sales')
-          .select('id, material, unit, rate, quantity, sale_date, is_opening')
+          .select('*') // cost_rate too, once the sale-cost migration has added it
           .eq('owner_id', ctx.ownerId)
           .eq('customer_id', customerId)
           .eq('kind', 'customer')
@@ -2133,7 +2148,7 @@ export async function getCustomerPriceList(customerId: string): Promise<Customer
       getMaterials(),
     ]);
     prices = p;
-    sales = s.map((x) => ({ ...x, unit: x.unit ?? '', rate: num(x.rate), quantity: num(x.quantity) }));
+    sales = s.map(toSale);
     materials = m.materials;
   }
 
@@ -2153,6 +2168,9 @@ export async function getCustomerPriceList(customerId: string): Promise<Customer
       last_rate: null,
       last_date: null,
       last_unit: null,
+      last_cost: null,
+      last_cost_unit: null,
+      last_cost_date: null,
       quantity: 0,
     };
     rows.set(key, row);
@@ -2167,6 +2185,11 @@ export async function getCustomerPriceList(customerId: string): Promise<Customer
     row.last_rate = x.rate;
     row.last_date = x.sale_date;
     row.last_unit = x.unit;
+    if (x.cost_rate !== null && x.cost_rate !== undefined) {
+      row.last_cost = x.cost_rate;
+      row.last_cost_unit = x.unit;
+      row.last_cost_date = x.sale_date;
+    }
     if (x.sale_date >= yearAgo) row.quantity += convertQuantity(x.quantity, x.unit, row.unit) ?? 0;
   }
   for (const p of prices) {

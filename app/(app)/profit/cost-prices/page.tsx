@@ -44,6 +44,11 @@ export default async function CostPricesPage() {
         cost of what you sold in a month until that month&apos;s closing stock is counted. Sales in kg are costed with a per-ton cost
         price and the other way round. These are the <span className="font-medium text-zinc-900">general</span> cost prices; a
         customer whose product is made differently can have their own (below).
+        <span className="block mt-1.5">
+          Each sale saves its own rate and cost when it is recorded, so changing a price here affects new sales only; past months
+          keep their profit. To correct one sale, edit it. Sales recorded before costs were saved with sales use the current cost
+          price until they are edited.
+        </span>
       </section>
 
       <section className={`${cardClass} overflow-hidden`}>

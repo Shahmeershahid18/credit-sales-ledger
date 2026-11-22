@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { formatRs, getTodayDateStr, calculateDueDate, formatDate } from '@/lib/format';
 import { addSaleAction, updateSaleAction } from '@/app/actions/sales';
 import { getCustomerRatesAction } from '@/app/actions/profit';
-import type { CustomerRate } from '@/lib/profit';
+import { pricePer, type CustomerRate } from '@/lib/profit';
 import { Check, Loader2, UserPlus, Plus } from 'lucide-react';
 import { CreditSale, Material } from '@/lib/types';
 import { ContactKind, SIDES } from '@/lib/contacts';
@@ -31,6 +31,20 @@ interface SaleFormProps {
 const BASE_UNITS = ['bag', 'ton', 'kg', 'truck', 'pcs', 'ft', 'sqft', 'litre', 'can'];
 type Term = 30 | 60 | 90 | 'custom';
 const TERMS: Term[] = [30, 60, 90];
+
+/**
+ * The cost to fill in for one unit of a sale (in the sale's unit): the customer's own cost
+ * price, else the cost saved with their last sale of it, else the product's general cost price
+ */
+function costFor(rate: CustomerRate | undefined, saved: Material | undefined, saleUnit: string, who: string) {
+  const c = rate?.cost;
+  const own = c ? pricePer(c.value, c.unit, saleUnit) : null;
+  if (c && own !== null) {
+    return { value: String(own), note: c.source === 'own' ? `${who}'s cost price` : `Cost of their last sale, ${formatDate(c.date)}` };
+  }
+  const general = saved && saved.cost_price !== null ? pricePer(saved.cost_price, saved.unit, saleUnit) : null;
+  return general !== null ? { value: String(general), note: 'General cost price' } : null;
+}
 
 export function SaleForm({
   kind,
@@ -69,12 +83,29 @@ export function SaleForm({
   // 'auto': the rate was filled in for this customer and product, and follows them; 'typed': entered by hand
   const [rateSource, setRateSource] = useState<'auto' | 'typed'>(entry ? 'typed' : 'auto');
   const [rateNote, setRateNote] = useState<string | null>(null);
+  // Sales: what one unit cost you, saved with the sale. Filled in like the rate; an old sale
+  // without a saved cost gets today's cost price when it is edited.
+  const [cost, setCost] = useState(() => {
+    if (kind !== 'customer' || !entry) return '';
+    if (entry.cost_rate !== null && entry.cost_rate !== undefined) return String(entry.cost_rate);
+    const who = customers.find((c) => c.id === entry.customer_id)?.name ?? 'this customer';
+    const saved = materials.find((m) => m.name.toLowerCase() === entry.material.trim().toLowerCase());
+    return costFor(customerRates?.[entry.material.trim().toLowerCase()], saved, entry.unit, who)?.value ?? '';
+  });
+  const [costSource, setCostSource] = useState<'auto' | 'typed'>(
+    entry?.cost_rate !== null && entry?.cost_rate !== undefined ? 'typed' : 'auto'
+  );
+  const [costNote, setCostNote] = useState<string | null>(
+    entry?.cost_rate !== null && entry?.cost_rate !== undefined ? 'Saved with this sale' : null
+  );
   const latestCustomer = useRef('');
   const movedFrom = entry && customerId !== entry.customer_id ? customers.find((c) => c.id === entry.customer_id) : undefined;
 
   const parsedQty = Number(quantity) || 0;
   const parsedRate = Number(rate) || 0;
   const amount = parsedQty * parsedRate;
+  const parsedCost = cost.trim() === '' ? null : Number(cost);
+  const margin = parsedCost !== null && !Number.isNaN(parsedCost) ? (parsedRate - parsedCost) * parsedQty : null;
   const creditDays = term === 'custom' ? Number(customDays) || 0 : term;
   const dueDate = calculateDueDate(saleDate, creditDays);
   const units = BASE_UNITS.includes(unit) ? BASE_UNITS : [...BASE_UNITS, unit];
@@ -94,38 +125,58 @@ export function SaleForm({
    * Fills the unit and rate for a product: on a sale, the customer's own rate, else the
    * last rate they were charged; otherwise the product's general rate
    */
-  const applyRate = (name: string, forCustomer: string, rates = ratesByCustomer[forCustomer]) => {
+  const applyRate = (name: string, forCustomer: string, rates = ratesByCustomer[forCustomer]): string => {
     const key = name.trim().toLowerCase();
-    const own = kind === 'customer' ? rates?.[key] : undefined;
+    const own = kind === 'customer' ? rates?.[key]?.rate : null;
     const saved = materialList.find((m) => m.name.toLowerCase() === key);
     if (own) {
       setUnit(own.unit);
-      setRate(String(own.rate));
+      setRate(String(own.value));
       setRateNote(own.source === 'own' ? `${customerName(forCustomer)}'s price` : `Last charged to ${customerName(forCustomer)}, ${formatDate(own.date)}`);
-    } else if (saved) {
+      setRateSource('auto');
+      return own.unit;
+    }
+    if (saved) {
       setUnit(saved.unit);
       const savedRate = rateOf(saved);
       if (savedRate !== null) setRate(String(savedRate));
       setRateNote(savedRate !== null ? 'General rate' : null);
-    } else {
-      return;
+      setRateSource('auto');
+      return saved.unit;
     }
-    setRateSource('auto');
+    return unit;
+  };
+
+  /** Fills the cost of a sale (sales only), unless one was typed */
+  const applyCost = (name: string, forCustomer: string, saleUnit: string, rates = ratesByCustomer[forCustomer], force = false) => {
+    if (kind !== 'customer' || (!force && costSource === 'typed' && cost.trim())) return;
+    const key = name.trim().toLowerCase();
+    const found = costFor(rates?.[key], materialList.find((m) => m.name.toLowerCase() === key), saleUnit, customerName(forCustomer));
+    setCost(found?.value ?? '');
+    setCostNote(found?.note ?? null);
+    setCostSource('auto');
   };
 
   const pickMaterial = (m: Material) => {
     setMaterial(m.name);
-    applyRate(m.name, customerId);
+    applyCost(m.name, customerId, applyRate(m.name, customerId));
   };
 
   const handleMaterialChange = (value: string) => {
     setMaterial(value);
-    // Typing a saved material's full name fills its unit, and its rate unless one was typed
+    // Typing a saved material's full name fills its unit, and its rate and cost unless they were typed
     const match = materialList.find((m) => m.name.toLowerCase() === value.trim().toLowerCase());
     if (match) {
-      if (!rate || rateSource === 'auto') applyRate(match.name, customerId);
+      let nextUnit = match.unit;
+      if (!rate || rateSource === 'auto') nextUnit = applyRate(match.name, customerId);
       else setUnit(match.unit);
+      applyCost(match.name, customerId, nextUnit);
     }
+  };
+
+  const handleUnitChange = (next: string) => {
+    setUnit(next);
+    if (material.trim()) applyCost(material, customerId, next);
   };
 
   const handleCustomerChange = async (id: string) => {
@@ -139,8 +190,10 @@ export function SaleForm({
       rates = result.rates;
       setRatesByCustomer((prev) => ({ ...prev, [id]: result.rates }));
     }
-    // A rate that was filled in follows the customer; a typed one stays
-    if (material.trim() && (rateSource === 'auto' || !rate)) applyRate(material, id, rates);
+    // A rate and cost that were filled in follow the customer; typed ones stay
+    if (!material.trim()) return;
+    const nextUnit = rateSource === 'auto' || !rate ? applyRate(material, id, rates) : unit;
+    applyCost(material, id, nextUnit, rates);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -151,6 +204,7 @@ export function SaleForm({
     if (!material.trim()) return setErrorMsg('Please enter the material.');
     if (parsedQty <= 0) return setErrorMsg('Quantity must be greater than 0.');
     if (parsedRate <= 0) return setErrorMsg('Rate must be greater than 0.');
+    if (parsedCost !== null && (Number.isNaN(parsedCost) || parsedCost < 0)) return setErrorMsg('The cost price must be 0 or more.');
     if (term === 'custom' && (customDays.trim() === '' || !Number.isInteger(Number(customDays)) || Number(customDays) < 0)) {
       return setErrorMsg('Enter credit days as a whole number (0 or more).');
     }
@@ -166,6 +220,7 @@ export function SaleForm({
     formData.append('rate', String(parsedRate));
     formData.append('credit_days', String(creditDays));
     if (notes.trim()) formData.append('notes', notes);
+    if (kind === 'customer' && parsedCost !== null) formData.append('cost_rate', String(parsedCost));
 
     const result = entry ? await updateSaleAction(entry.id, formData) : await addSaleAction(formData);
 
@@ -233,7 +288,7 @@ export function SaleForm({
           {isNewMaterial && <p className="text-xs text-zinc-500">New material. It will be saved as a pill for next time.</p>}
         </Field>
         <Field label="Unit" htmlFor="unit">
-          <Select id="unit" value={unit} onChange={setUnit} options={units.map((u) => ({ value: u, label: u }))} searchable={false} />
+          <Select id="unit" value={unit} onChange={handleUnitChange} options={units.map((u) => ({ value: u, label: u }))} searchable={false} />
         </Field>
 
         <Field label="Quantity" htmlFor="quantity">
@@ -274,6 +329,41 @@ export function SaleForm({
             {formatRs(amount)}
           </div>
         </Field>
+
+        {kind === 'customer' && (
+          <>
+            <Field label="Cost price (Rs.)" htmlFor="cost_rate" hint={unit ? `per ${unit}` : undefined} className="col-span-1">
+              <input
+                id="cost_rate"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                min="0"
+                placeholder="Not set"
+                value={cost}
+                onChange={(e) => {
+                  setCost(e.target.value);
+                  setCostSource('typed');
+                  setCostNote(null);
+                }}
+                className={inputClass}
+              />
+              {costNote && <p className="text-xs text-zinc-500">{costNote}</p>}
+            </Field>
+            <Field label="Margin" className="col-span-1">
+              <div
+                className={`h-10 px-3 rounded-lg bg-zinc-50 border border-zinc-200 text-sm font-semibold flex items-center tabular-nums ${
+                  margin === null ? 'text-zinc-400' : margin < 0 ? 'text-rose-700' : 'text-emerald-700'
+                }`}
+              >
+                {margin === null ? '—' : `${formatRs(margin)}${amount > 0 ? ` (${Math.round((margin / amount) * 100)}%)` : ''}`}
+              </div>
+            </Field>
+            <p className="col-span-2 self-end pb-2.5 text-xs text-zinc-500">
+              Cost and margin are saved with this sale for your profit report only. They are never shown to the customer.
+            </p>
+          </>
+        )}
       </div>
 
       <Field label="Credit term" hint={<>Due <span className="font-medium text-zinc-900">{formatDate(dueDate)}</span></>}>

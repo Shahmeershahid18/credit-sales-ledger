@@ -29,6 +29,7 @@ export type CreditSale = {
   due_date: string; // YYYY-MM-DD
   notes?: string | null;
   is_opening?: boolean; // the party's opening balance, not a sale or purchase
+  cost_rate?: number | null; // sales: what one unit cost you, saved with the sale (never shown to the customer)
   created_at: string;
 };
 
@@ -93,6 +94,9 @@ export type CustomerPriceRow = {
   last_rate: number | null; // last rate charged to this customer
   last_date: string | null;
   last_unit: string | null;
+  last_cost: number | null; // cost saved with their latest sale that has one (per last_cost_unit)
+  last_cost_unit: string | null;
+  last_cost_date: string | null;
   quantity: number; // sold to them in the last 12 months, in `unit`
 };
 
@@ -166,8 +170,8 @@ export type ItemMargin = {
   unit: string; // the saved product's unit (sales in kg are counted as tons and the other way round)
   quantity: number;
   sales: number;
-  costPrice: number | null; // the general cost price
-  customerPriced: boolean; // some customers have their own cost price for it
+  costPrice: number | null; // cost per unit of its sales (or the general cost price)
+  costVaries: boolean; // its sales were costed at different prices (by customer or by date)
   cost: number | null; // null when a cost price is missing or the unit does not match
 };
 

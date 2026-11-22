@@ -31,8 +31,12 @@ export default async function CustomerPricesPage({ params }: { params: Promise<{
           without one, the form uses the last rate they were charged.
         </p>
         <p>
-          A cost price set here is used for this customer&apos;s sales in the profit estimate and in the item-wise and customer-wise
-          margins, for example when their version of a product uses different material.
+          A cost price set here is filled in as the cost on this customer&apos;s sale form (without one, the cost of their last sale,
+          then the general cost price), for example when their version of a product uses different material.
+        </p>
+        <p>
+          Prices change? Change them here when they do. Each sale keeps the rate and cost it was saved with, so past sales and past
+          months&apos; profit never change. To correct one sale, edit that sale.
         </p>
       </section>
 

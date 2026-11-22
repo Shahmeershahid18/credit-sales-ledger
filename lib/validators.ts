@@ -24,6 +24,10 @@ export const CreditSaleSchema = z.object({
   rate: z.coerce.number().positive('Rate must be greater than 0'),
   credit_days: z.coerce.number().int('Credit days must be a whole number').min(0, 'Credit days must be 0 or more'),
   notes: optionalText,
+  cost_rate: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? null : v),
+    z.coerce.number().min(0, 'The cost price cannot be negative').nullable()
+  ),
 });
 
 export const PaymentSchema = z.object({

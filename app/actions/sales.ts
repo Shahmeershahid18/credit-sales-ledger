@@ -17,6 +17,7 @@ function parseSale(formData: FormData) {
     rate: formData.get('rate'),
     credit_days: formData.get('credit_days') ?? 30,
     notes: formData.get('notes'),
+    cost_rate: formData.get('cost_rate'),
   });
   if (!parsed.success) return { error: firstIssue(parsed.error) } as const;
   return { kind: kind.data, data: parsed.data } as const;

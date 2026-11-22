@@ -62,6 +62,9 @@ export function CustomerPriceEditor({ customerId, customerName, rows: initialRow
         last_rate: null,
         last_date: null,
         last_unit: null,
+        last_cost: null,
+        last_cost_unit: null,
+        last_cost_date: null,
         quantity: 0,
       },
     ]);

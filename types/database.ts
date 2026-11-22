@@ -87,6 +87,7 @@ export type Database = {
           due_date: string;
           notes: string | null;
           is_opening: boolean;
+          cost_rate: number | null;
           created_at: string;
         };
         Insert: {
@@ -102,6 +103,7 @@ export type Database = {
           credit_days?: number;
           notes?: string | null;
           is_opening?: boolean;
+          cost_rate?: number | null;
           created_at?: string;
         };
         Update: {
@@ -117,6 +119,7 @@ export type Database = {
           credit_days?: number;
           notes?: string | null;
           is_opening?: boolean;
+          cost_rate?: number | null;
           created_at?: string;
         };
         Relationships: [
