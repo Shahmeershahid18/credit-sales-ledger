@@ -155,3 +155,15 @@ export const ChangePasswordSchema = z
     confirm: z.string(),
   })
   .refine((d) => d.password === d.confirm, { message: 'The new passwords do not match', path: ['confirm'] });
+
+/** A customer's own prices: each product with an optional sale rate and cost price */
+export const CustomerPricesSchema = z
+  .array(
+    z.object({
+      material: z.string().trim().min(1, 'Every price needs a product').max(80, 'A product name is too long'),
+      unit: z.string().trim().min(1).max(20).default('bag'),
+      sale_rate: optionalRate('The sale rate cannot be negative'),
+      cost_price: optionalRate('The cost price cannot be negative'),
+    })
+  )
+  .max(500, 'Too many prices');

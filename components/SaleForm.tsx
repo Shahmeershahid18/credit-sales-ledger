@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatRs, getTodayDateStr, calculateDueDate, formatDate } from '@/lib/format';
 import { addSaleAction, updateSaleAction } from '@/app/actions/sales';
+import { getCustomerRatesAction } from '@/app/actions/profit';
+import type { CustomerRate } from '@/lib/profit';
 import { Check, Loader2, UserPlus, Plus } from 'lucide-react';
 import { CreditSale, Material } from '@/lib/types';
 import { ContactKind, SIDES } from '@/lib/contacts';
@@ -23,6 +25,7 @@ interface SaleFormProps {
   cancelHref: string;
   entry?: CreditSale; // editing this sale or purchase
   linkedPayments?: number; // payments recorded against `entry`
+  customerRates?: Record<string, CustomerRate>; // sales: the preselected (or edited) customer's own and last rates
 }
 
 const BASE_UNITS = ['bag', 'ton', 'kg', 'truck', 'pcs', 'ft', 'sqft', 'litre', 'can'];
@@ -38,6 +41,7 @@ export function SaleForm({
   cancelHref,
   entry,
   linkedPayments = 0,
+  customerRates,
 }: SaleFormProps) {
   const router = useRouter();
   const terms = SIDES[kind];
@@ -57,6 +61,15 @@ export function SaleForm({
   const [showNotes, setShowNotes] = useState(Boolean(entry?.notes));
   const [notes, setNotes] = useState(entry?.notes ?? '');
   const [materialList, setMaterialList] = useState(materials);
+  // Sales: each customer's own rates (and last rates charged), loaded when the customer is picked
+  const initialCustomer = entry?.customer_id ?? preselectedCustomerId ?? '';
+  const [ratesByCustomer, setRatesByCustomer] = useState<Record<string, Record<string, CustomerRate>>>(
+    initialCustomer && customerRates ? { [initialCustomer]: customerRates } : {}
+  );
+  // 'auto': the rate was filled in for this customer and product, and follows them; 'typed': entered by hand
+  const [rateSource, setRateSource] = useState<'auto' | 'typed'>(entry ? 'typed' : 'auto');
+  const [rateNote, setRateNote] = useState<string | null>(null);
+  const latestCustomer = useRef('');
   const movedFrom = entry && customerId !== entry.customer_id ? customers.find((c) => c.id === entry.customer_id) : undefined;
 
   const parsedQty = Number(quantity) || 0;
@@ -75,22 +88,59 @@ export function SaleForm({
     material.trim() !== '' &&
     !materialList.some((m) => m.name.toLowerCase() === material.trim().toLowerCase());
 
+  const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? 'this customer';
+
+  /**
+   * Fills the unit and rate for a product: on a sale, the customer's own rate, else the
+   * last rate they were charged; otherwise the product's general rate
+   */
+  const applyRate = (name: string, forCustomer: string, rates = ratesByCustomer[forCustomer]) => {
+    const key = name.trim().toLowerCase();
+    const own = kind === 'customer' ? rates?.[key] : undefined;
+    const saved = materialList.find((m) => m.name.toLowerCase() === key);
+    if (own) {
+      setUnit(own.unit);
+      setRate(String(own.rate));
+      setRateNote(own.source === 'own' ? `${customerName(forCustomer)}'s price` : `Last charged to ${customerName(forCustomer)}, ${formatDate(own.date)}`);
+    } else if (saved) {
+      setUnit(saved.unit);
+      const savedRate = rateOf(saved);
+      if (savedRate !== null) setRate(String(savedRate));
+      setRateNote(savedRate !== null ? 'General rate' : null);
+    } else {
+      return;
+    }
+    setRateSource('auto');
+  };
+
   const pickMaterial = (m: Material) => {
     setMaterial(m.name);
-    setUnit(m.unit);
-    const savedRate = rateOf(m);
-    if (savedRate !== null) setRate(String(savedRate));
+    applyRate(m.name, customerId);
   };
 
   const handleMaterialChange = (value: string) => {
     setMaterial(value);
-    // Typing a saved material's full name fills its unit, and its rate if none is entered yet
+    // Typing a saved material's full name fills its unit, and its rate unless one was typed
     const match = materialList.find((m) => m.name.toLowerCase() === value.trim().toLowerCase());
     if (match) {
-      setUnit(match.unit);
-      const savedRate = rateOf(match);
-      if (!rate && savedRate !== null) setRate(String(savedRate));
+      if (!rate || rateSource === 'auto') applyRate(match.name, customerId);
+      else setUnit(match.unit);
     }
+  };
+
+  const handleCustomerChange = async (id: string) => {
+    setCustomerId(id);
+    if (kind !== 'customer' || !id) return;
+    let rates = ratesByCustomer[id];
+    if (!rates) {
+      latestCustomer.current = id;
+      const result = await getCustomerRatesAction(id);
+      if (latestCustomer.current !== id || !result.success) return;
+      rates = result.rates;
+      setRatesByCustomer((prev) => ({ ...prev, [id]: result.rates }));
+    }
+    // A rate that was filled in follows the customer; a typed one stays
+    if (material.trim() && (rateSource === 'auto' || !rate)) applyRate(material, id, rates);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -138,7 +188,7 @@ export function SaleForm({
             <Select
               id="customer"
               value={customerId}
-              onChange={setCustomerId}
+              onChange={handleCustomerChange}
               placeholder={`Select ${terms.one}…`}
               searchPlaceholder={`Search ${terms.many}…`}
               options={customers.map((c) => ({ value: c.id, label: c.name, description: c.phone ?? undefined }))}
@@ -209,10 +259,15 @@ export function SaleForm({
             min="0"
             placeholder="0"
             value={rate}
-            onChange={(e) => setRate(e.target.value)}
+            onChange={(e) => {
+              setRate(e.target.value);
+              setRateSource('typed');
+              setRateNote(null);
+            }}
             className={inputClass}
             required
           />
+          {rateNote && <p className="text-xs text-zinc-500">{rateNote}</p>}
         </Field>
         <Field label="Amount">
           <div className="h-10 px-3 rounded-lg bg-zinc-50 border border-zinc-200 text-sm font-semibold text-zinc-900 flex items-center tabular-nums">

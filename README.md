@@ -37,7 +37,8 @@ login, and anything you add is lost when the server restarts. A banner in the ap
    8. `supabase/migrations/20261118000000_returns.sql` (customer returns and vendor returns)
    9. `supabase/migrations/20261122000000_profit.sql` (cost prices, expenses, owner investment and
       withdrawals, month-end stock counts)
-   10. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
+   10. `supabase/migrations/20261123000000_customer_prices.sql` (each customer's own sale rate and cost price)
+   11. Optional sample data: `supabase/seed.sql` (added to the first admin's ledger)
 5. Copy `.env.example` to `.env.local` and fill in `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API keys).
    The service role key is a secret used only on the server; never commit it.
@@ -116,6 +117,11 @@ login, and anything you add is lost when the server restarts. A banner in the ap
   count copies the items and rates of the last one.
 - **Cost prices** (`/profit/cost-prices`): what one unit of each saved product costs you to make, with the
   margin at its sale rate. kg and tons are converted.
+- **Customer-specific prices** (**Prices** on a customer page, `/customers/[id]/prices`): a customer's own sale
+  rate and cost price for each product, when they differ from the general ones. Empty means the general one.
+  On that customer's sale form the rate filled in is their own rate, else the last rate they were charged, else
+  the general rate. Their cost price is used for their sales in the profit estimate and in the item-wise and
+  **customer-wise margin** on the Profit page. Stored in `customer_prices`; merging parties moves them.
 - **Expenses** (`/expenses`): expenses with a category (rent, salaries…), owner **investment** (money put in)
   and owner **withdrawal** (money taken out), by month or year, with CSV export. Investment and withdrawals
   are not income or expenses, so they never change profit.

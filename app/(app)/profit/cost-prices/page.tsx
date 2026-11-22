@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getMaterials, getQuantityHistory } from '@/lib/queries';
+import { getCustomers, getCustomersWithPrices, getMaterials, getQuantityHistory } from '@/lib/queries';
 import { getCurrentMonthStr, shiftMonth } from '@/lib/format';
 import { convertQuantity } from '@/lib/profit';
 import { CostPriceEditor } from '@/components/CostPriceEditor';
+import { CustomerPicker } from '@/components/CustomerPicker';
 import { EmptyState, PageHeader, buttonClass, cardClass } from '@/components/ui';
 import { Tags } from 'lucide-react';
 
@@ -13,9 +14,11 @@ export const metadata: Metadata = { title: 'Cost prices' };
 /** Item-wise cost price: what one unit of each product costs you to make */
 export default async function CostPricesPage() {
   const thisMonth = getCurrentMonthStr();
-  const [{ materials, available }, history] = await Promise.all([
+  const [{ materials, available }, history, priced, customers] = await Promise.all([
     getMaterials(),
     getQuantityHistory('customer', shiftMonth(thisMonth, -2), thisMonth),
+    getCustomersWithPrices(),
+    getCustomers('customer'),
   ]);
 
   // Quantity sold in the last 3 months, in each saved product's own unit
@@ -39,7 +42,8 @@ export default async function CostPricesPage() {
       <section className={`${cardClass} p-4 sm:p-5 text-sm text-zinc-600`}>
         Cost prices give the <span className="font-medium text-zinc-900">item-wise margin</span> on the Profit page, and estimate the
         cost of what you sold in a month until that month&apos;s closing stock is counted. Sales in kg are costed with a per-ton cost
-        price and the other way round.
+        price and the other way round. These are the <span className="font-medium text-zinc-900">general</span> cost prices; a
+        customer whose product is made differently can have their own (below).
       </section>
 
       <section className={`${cardClass} overflow-hidden`}>
@@ -56,6 +60,34 @@ export default async function CostPricesPage() {
           />
         ) : (
           <CostPriceEditor materials={materials} sold={sold} />
+        )}
+      </section>
+
+      <section className={`${cardClass} overflow-hidden`}>
+        <div className="px-4 py-3 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900">Customer-specific prices</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">A customer&apos;s own sale rate and cost price win over the general ones</p>
+          </div>
+          <div className="sm:w-64">
+            <CustomerPicker customers={customers.map((c) => ({ id: c.id, name: c.name }))} />
+          </div>
+        </div>
+        {priced.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-zinc-500 text-center">No customer has their own prices yet. Pick a customer to set them.</p>
+        ) : (
+          <ul className="divide-y divide-zinc-100">
+            {priced.map((c) => (
+              <li key={c.id}>
+                <Link href={`/customers/${c.id}/prices`} className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-zinc-50">
+                  <span className="text-sm font-medium text-zinc-900">{c.name}</span>
+                  <span className="text-xs text-zinc-500">
+                    {c.count} {c.count === 1 ? 'product' : 'products'}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </div>

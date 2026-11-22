@@ -1,4 +1,4 @@
-import { BusinessEntry, Customer, CreditSale, Material, Payment, StockCount, StockItem } from './types';
+import { BusinessEntry, Customer, CreditSale, CustomerPrice, Material, Payment, StockCount, StockItem } from './types';
 import { addDays, calculateDueDate, getTodayDateStr, shiftMonth } from './format';
 import { stockTotal } from './profit';
 
@@ -14,6 +14,7 @@ export function createSampleData(): {
   materials: Material[];
   businessEntries: BusinessEntry[];
   stockCounts: StockCount[];
+  customerPrices: CustomerPrice[];
 } {
   const today = getTodayDateStr();
   const daysAgo = (days: number) => addDays(today, -days);
@@ -176,5 +177,11 @@ export function createSampleData(): {
     stockCounts.push(countOf(m, Math.max(200000, closing)));
   }
 
-  return { customers, sales, payments, materials, businessEntries, stockCounts };
+  // Khan Construction gets its own rate and a cheaper mix of Bestway cement; Ittefaq a special DG rate
+  const customerPrices: CustomerPrice[] = [
+    { id: 'cpr-1', customer_id: 'cust-2', material: 'Bestway Cement Bags', unit: 'bag', sale_rate: 1300, cost_price: 1150, updated_at: createdAt(16) },
+    { id: 'cpr-2', customer_id: 'vend-2', material: 'DG Cement Bags', unit: 'bag', sale_rate: 1500, cost_price: null, updated_at: createdAt(13) },
+  ];
+
+  return { customers, sales, payments, materials, businessEntries, stockCounts, customerPrices };
 }

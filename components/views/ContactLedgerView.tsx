@@ -28,6 +28,7 @@ import {
   FileText,
   ShoppingCart,
   Undo2,
+  Tags,
 } from 'lucide-react';
 
 export async function contactMetadata(kind: ContactKind, id: string): Promise<Metadata> {
@@ -104,6 +105,12 @@ export async function ContactLedgerView({ kind, id }: { kind: ContactKind; id: s
               <FileText className="w-4 h-4" />
               <span className="hidden sm:inline">Statement</span>
             </Link>
+            {contact.is_customer && (
+              <Link href={`${customerHref}/prices`} className={buttonClass('secondary')} aria-label="Prices">
+                <Tags className="w-4 h-4" />
+                <span className="hidden sm:inline">Prices</span>
+              </Link>
+            )}
             <Link href={`${href}/edit`} className={buttonClass('secondary')} aria-label={`Edit ${terms.one}`}>
               <Pencil className="w-4 h-4" />
               <span className="hidden sm:inline">Edit</span>

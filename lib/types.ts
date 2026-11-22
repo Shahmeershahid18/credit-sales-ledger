@@ -64,6 +64,38 @@ export type Material = {
   created_at: string;
 };
 
+/**
+ * A customer's own price for a product, when it differs from the general one on the
+ * saved material. Either value can be empty: then the general one is used.
+ */
+export type CustomerPrice = {
+  id: string;
+  customer_id: string;
+  material: string;
+  unit: string;
+  sale_rate: number | null;
+  cost_price: number | null;
+  updated_at: string;
+};
+
+/**
+ * A product in one customer's price list: their own rates (if set), the general rates,
+ * and what they were last charged
+ */
+export type CustomerPriceRow = {
+  key: string; // material name, lower case
+  material: string;
+  unit: string;
+  sale_rate: number | null; // customer's own
+  cost_price: number | null; // customer's own
+  default_rate: number | null; // general sale rate
+  default_cost: number | null; // general cost price
+  last_rate: number | null; // last rate charged to this customer
+  last_date: string | null;
+  last_unit: string | null;
+  quantity: number; // sold to them in the last 12 months, in `unit`
+};
+
 // ---------------------------------------------------------------------------
 // Profit and loss
 // ---------------------------------------------------------------------------
@@ -134,8 +166,19 @@ export type ItemMargin = {
   unit: string; // the saved product's unit (sales in kg are counted as tons and the other way round)
   quantity: number;
   sales: number;
-  costPrice: number | null;
-  cost: number | null; // null when the cost price is missing or the unit does not match
+  costPrice: number | null; // the general cost price
+  customerPriced: boolean; // some customers have their own cost price for it
+  cost: number | null; // null when a cost price is missing or the unit does not match
+};
+
+/** One customer's sales in a month, their cost at the cost prices (theirs first) and the margin */
+export type CustomerMargin = {
+  id: string;
+  name: string;
+  sales: number;
+  returned: number; // customer returns this month
+  cost: number; // cost of the sales that have a cost price (less returned goods)
+  uncosted: number; // sales without a cost price, left out of `cost`
 };
 
 export type ProfitReport = {
@@ -143,6 +186,7 @@ export type ProfitReport = {
   previous: ProfitMonth;
   history: ProfitMonth[]; // oldest first, ending with `month`
   items: ItemMargin[];
+  customers: CustomerMargin[]; // largest net sales first
   expensesByCategory: { category: string; amount: number }[]; // largest first
 };
 
@@ -346,6 +390,8 @@ export type OpeningBalance = {
 /**
  * One line of a party's combined ledger. Debit: sales and payments you made (they
  * owe you more). Credit: purchases and payments you received (you owe them more).
+ * These lines are printed on the account statement the customer receives: never add
+ * cost prices, margins or profit here.
  */
 export type PartyLedgerRow = {
   id: string;

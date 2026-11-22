@@ -7,6 +7,7 @@ import {
   getCustomerSaleOptions,
   getLedger,
   getMaterials,
+  getCustomerPriceList,
   getOpeningBalance,
   getParties,
   getPartyLedger,
@@ -18,6 +19,7 @@ import { Customer } from '@/lib/types';
 import { CustomerForm } from '@/components/CustomerForm';
 import { MergeParty } from '@/components/MergeParty';
 import { SaleForm } from '@/components/SaleForm';
+import { toCustomerRates } from '@/lib/profit';
 import { PaymentForm } from '@/components/PaymentForm';
 import { ReturnForm } from '@/components/ReturnForm';
 import { PageHeader, cardClass } from '@/components/ui';
@@ -81,7 +83,7 @@ export async function NewEntryView({ kind, id }: { kind: ContactKind; id?: strin
   const terms = SIDES[kind];
 
   if (id) {
-    const [contact, { materials, available }] = await Promise.all([getCustomerById(id, kind), getMaterials()]);
+    const [contact, { materials, available }, rates] = await Promise.all([getCustomerById(id, kind), getMaterials(), ratesFor(kind, id)]);
     if (!contact) notFound();
     const href = `${terms.base}/${id}`;
     return (
@@ -93,6 +95,7 @@ export async function NewEntryView({ kind, id }: { kind: ContactKind; id?: strin
           materialsAvailable={available}
           preselectedCustomerId={id}
           cancelHref={href}
+          customerRates={rates}
         />
       </FormPage>
     );
@@ -104,6 +107,11 @@ export async function NewEntryView({ kind, id }: { kind: ContactKind; id?: strin
       <SaleForm kind={kind} customers={partyOptions(kind, parties)} materials={materials} materialsAvailable={available} cancelHref="/dashboard" />
     </FormPage>
   );
+}
+
+/** A customer's own and last rates, for the sale form (purchases use the general rates) */
+async function ratesFor(kind: ContactKind, partyId: string) {
+  return kind === 'customer' ? toCustomerRates(await getCustomerPriceList(partyId)) : undefined;
 }
 
 /** Any party can be picked for a sale or purchase: this side's first, then the others, which take on this role */
@@ -123,7 +131,12 @@ export async function EditEntryView({ kind, id, entryId }: { kind: ContactKind; 
   // The opening balance is changed on the party form
   if (entry.is_opening) redirect(`${terms.base}/${id}/edit#opening`);
 
-  const [parties, { materials, available }, ledger] = await Promise.all([getParties(), getMaterials(), getPartyLedger(id)]);
+  const [parties, { materials, available }, ledger, rates] = await Promise.all([
+    getParties(),
+    getMaterials(),
+    getPartyLedger(id),
+    ratesFor(kind, id),
+  ]);
   const href = `${terms.base}/${id}`;
   const linked = ledger.rows.find((r) => r.id === entryId)?.linked ?? 0;
   return (
@@ -136,6 +149,7 @@ export async function EditEntryView({ kind, id, entryId }: { kind: ContactKind; 
         cancelHref={href}
         entry={entry}
         linkedPayments={linked}
+        customerRates={rates}
       />
     </FormPage>
   );

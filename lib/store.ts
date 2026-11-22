@@ -1,5 +1,6 @@
 import {
   BusinessEntry,
+  CustomerPrice,
   StockCount,
   Customer,
   CreditSale,
@@ -42,13 +43,14 @@ type DemoData = {
   materials: Material[];
   businessEntries: BusinessEntry[];
   stockCounts: StockCount[];
+  customerPrices: CustomerPrice[];
 };
 
 const globalStore = globalThis as typeof globalThis & { __ledgerDemoData?: DemoData };
 
 export function getDemoData(): DemoData {
   // A store from before profit tracking (kept across a hot reload) is replaced
-  if (!globalStore.__ledgerDemoData?.stockCounts) {
+  if (!globalStore.__ledgerDemoData?.customerPrices) {
     globalStore.__ledgerDemoData = createSampleData();
   }
   return globalStore.__ledgerDemoData;

@@ -248,6 +248,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      customer_prices: {
+        Row: {
+          id: string;
+          owner_id: string;
+          customer_id: string;
+          material: string;
+          unit: string;
+          sale_rate: number | null;
+          cost_price: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id?: string;
+          customer_id: string;
+          material: string;
+          unit?: string;
+          sale_rate?: number | null;
+          cost_price?: number | null;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          customer_id?: string;
+          material?: string;
+          unit?: string;
+          sale_rate?: number | null;
+          cost_price?: number | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       stock_counts: {
         Row: {
           id: string;

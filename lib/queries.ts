@@ -22,11 +22,13 @@ import {
   topBalances,
   buildQuantityHistory,
 } from './store';
-import { buildItemMargins, buildProfitMonths, expensesByCategory, stockTotal, type ProfitInputs } from './profit';
+import { buildCustomerMargins, buildItemMargins, buildProfitMonths, convertQuantity, costBook, expensesByCategory, stockTotal, type ProfitInputs } from './profit';
 import { ContactKind, SIDES } from './contacts';
 import {
   AgingRow,
   BusinessEntry,
+  CustomerPrice,
+  CustomerPriceRow,
   BusinessEntryKind,
   Customer,
   CreditSale,
@@ -817,7 +819,7 @@ export async function getCustomerSaleOptions(customerId: string, kind: ContactKi
 type MaterialRow = Database['public']['Tables']['materials']['Row'];
 type MaterialInput = { name: string; unit: string; rate: number | null; purchase_rate: number | null };
 
-const LATEST_MIGRATION = 'supabase/migrations/20261122000000_profit.sql';
+const LATEST_MIGRATION = 'supabase/migrations/20261123000000_customer_prices.sql';
 
 /**
  * True when a PostgREST error means a table or column from a newer migration is missing
@@ -831,7 +833,7 @@ class SchemaUpdateError extends Error {}
 
 function schemaError(error: { code?: string; message: string }): Error {
   if (isMissingSchema(error)) {
-    return new SchemaUpdateError(`The database needs an update. Run ${LATEST_MIGRATION} in the Supabase SQL Editor.`);
+    return new SchemaUpdateError(`The database needs an update. Run the files in supabase/migrations you have not run yet, up to ${LATEST_MIGRATION}, in the Supabase SQL Editor.`);
   }
   return new Error(error.message);
 }
@@ -1685,6 +1687,10 @@ export async function mergeParties(keepId: string, mergeId: string): Promise<voi
     keep.address = keep.address?.trim() ? keep.address : other.address;
     store.sales.forEach((s) => s.customer_id === mergeId && (s.customer_id = keepId));
     store.payments.forEach((p) => p.customer_id === mergeId && (p.customer_id = keepId));
+    // Prices: the kept party's own stay, the others move over
+    const kept = new Set(store.customerPrices.filter((p) => p.customer_id === keepId).map((p) => p.material.trim().toLowerCase()));
+    store.customerPrices = store.customerPrices.filter((p) => p.customer_id !== mergeId || !kept.has(p.material.trim().toLowerCase()));
+    store.customerPrices.forEach((p) => p.customer_id === mergeId && (p.customer_id = keepId));
     store.customers.splice(store.customers.indexOf(other), 1);
     return;
   }
@@ -1775,6 +1781,7 @@ async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs 
       entries: d.businessEntries,
       counts: d.stockCounts,
       materials: d.materials,
+      customerCosts: d.customerPrices,
     };
   }
 
@@ -1782,11 +1789,11 @@ async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs 
   const start = monthStart(from);
   const end = nextMonthStart(to);
   try {
-    const [sales, returns, entries, counts, materials] = await Promise.all([
+    const [sales, returns, entries, counts, materials, customerCosts] = await Promise.all([
       fetchAll((a, b) =>
         db
           .from('credit_sales')
-          .select('id, kind, sale_date, material, quantity, unit, amount, is_opening')
+          .select('id, customer_id, kind, sale_date, material, quantity, unit, amount, is_opening')
           .eq('owner_id', ownerId)
           .eq('is_opening', false)
           .gte('sale_date', start)
@@ -1797,7 +1804,7 @@ async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs 
       fetchAll((a, b) =>
         db
           .from('payments')
-          .select('id, kind, payment_date, amount, sale_id, is_opening')
+          .select('id, customer_id, kind, payment_date, amount, sale_id, is_opening')
           .eq('owner_id', ownerId)
           .eq('method', 'return')
           .gte('payment_date', start)
@@ -1826,6 +1833,7 @@ async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs 
           .range(a, b)
       ),
       fetchAll((a, b) => db.from('materials').select('id, name, unit, cost_price').eq('owner_id', ownerId).order('id').range(a, b)),
+      fetchCustomerPrices(ctx),
     ]);
     return {
       sales: sales.map((s) => ({ ...s, kind: toKind(s.kind), unit: s.unit ?? '', quantity: num(s.quantity), amount: num(s.amount) })),
@@ -1833,6 +1841,7 @@ async function loadProfitInputs(from: string, to: string): Promise<ProfitInputs 
       entries: entries.map((e) => ({ ...e, kind: toEntryKind(e.kind), amount: num(e.amount) })),
       counts: counts.map((c) => ({ month: c.month.slice(0, 7), total: num(c.total) })),
       materials: materials.map((m) => ({ ...m, cost_price: m.cost_price === null ? null : num(m.cost_price) })),
+      customerCosts,
     };
   } catch (err) {
     if (err instanceof SchemaUpdateError) return null;
@@ -1855,11 +1864,14 @@ export async function getProfitReport(month: string, historyMonths = 12): Promis
   const inputs = await loadProfitInputs(from, month);
   if (!inputs) return null;
   const history = buildProfitMonths(monthRange(from, month), inputs);
+  const book = costBook(inputs.materials, inputs.customerCosts);
+  const parties = await getParties();
   return {
     month: history[history.length - 1],
     previous: history[history.length - 2],
     history,
-    items: buildItemMargins(month, inputs.sales, inputs.materials),
+    items: buildItemMargins(month, inputs.sales, book),
+    customers: buildCustomerMargins(month, inputs.sales, inputs.returns, book, new Map(parties.map((p) => [p.id, p.name]))),
     expensesByCategory: expensesByCategory(month, inputs.entries),
   };
 }
@@ -2038,6 +2050,182 @@ export async function setCostPrice(materialId: string, costPrice: number | null)
   if (error) throw schemaError(error);
   if (!data) throw new Error('Material not found');
   return toMaterial(data);
+}
+
+// ---------------------------------------------------------------------------
+// Customer-specific prices: a customer's own sale rate and cost price for a product
+// ---------------------------------------------------------------------------
+
+type CustomerPriceDbRow = Database['public']['Tables']['customer_prices']['Row'];
+export type CustomerPriceInput = { material: string; unit: string; sale_rate: number | null; cost_price: number | null };
+
+const priceKey = (material: string) => material.trim().toLowerCase();
+const optionalNum = (v: number | string | null | undefined) => (v === null || v === undefined ? null : num(v));
+
+function toCustomerPrice(r: CustomerPriceDbRow): CustomerPrice {
+  return {
+    id: r.id,
+    customer_id: r.customer_id,
+    material: r.material,
+    unit: r.unit,
+    sale_rate: optionalNum(r.sale_rate),
+    cost_price: optionalNum(r.cost_price),
+    updated_at: r.updated_at,
+  };
+}
+
+/**
+ * Customers' own prices (one customer, or all). Before the customer-prices migration
+ * there are none, so everything falls back to the general prices.
+ */
+async function fetchCustomerPrices({ db, ownerId }: Ctx, customerId?: string): Promise<CustomerPrice[]> {
+  try {
+    const rows = await fetchAll((a, b) => {
+      let q = db.from('customer_prices').select('*').eq('owner_id', ownerId);
+      if (customerId) q = q.eq('customer_id', customerId);
+      return q.order('id').range(a, b);
+    });
+    return rows.map(toCustomerPrice);
+  } catch (err) {
+    if (err instanceof SchemaUpdateError) return [];
+    throw err;
+  }
+}
+
+/** True once the customer-prices migration has been run (always in demo mode) */
+export async function customerPricesAvailable(): Promise<boolean> {
+  const ctx = await getCtx();
+  if (!ctx) return true;
+  const { error } = await ctx.db.from('customer_prices').select('id').eq('owner_id', ctx.ownerId).limit(1);
+  return !error || !isMissingSchema(error);
+}
+
+/**
+ * One customer's price list: every product they bought (with the last rate charged) or
+ * have their own price for, with their own rates and the general ones
+ */
+export async function getCustomerPriceList(customerId: string): Promise<CustomerPriceRow[]> {
+  const ctx = await getCtx();
+  let prices: CustomerPrice[];
+  let sales: Pick<CreditSale, 'material' | 'unit' | 'rate' | 'quantity' | 'sale_date' | 'is_opening'>[];
+  let materials: Material[];
+
+  if (!ctx) {
+    const d = getDemoData();
+    prices = d.customerPrices.filter((p) => p.customer_id === customerId);
+    sales = d.sales.filter((x) => x.customer_id === customerId && x.kind === 'customer');
+    materials = d.materials;
+  } else {
+    if (!UUID_RE.test(customerId)) return [];
+    const [p, s, m] = await Promise.all([
+      fetchCustomerPrices(ctx, customerId),
+      fetchAll((a, b) =>
+        ctx.db
+          .from('credit_sales')
+          .select('id, material, unit, rate, quantity, sale_date, is_opening')
+          .eq('owner_id', ctx.ownerId)
+          .eq('customer_id', customerId)
+          .eq('kind', 'customer')
+          .eq('is_opening', false)
+          .order('id')
+          .range(a, b)
+      ),
+      getMaterials(),
+    ]);
+    prices = p;
+    sales = s.map((x) => ({ ...x, unit: x.unit ?? '', rate: num(x.rate), quantity: num(x.quantity) }));
+    materials = m.materials;
+  }
+
+  const general = new Map(materials.map((m) => [priceKey(m.name), m]));
+  const rows = new Map<string, CustomerPriceRow>();
+  const rowFor = (material: string, unit: string) => {
+    const key = priceKey(material);
+    const saved = general.get(key);
+    const row = rows.get(key) ?? {
+      key,
+      material: saved?.name ?? material.trim(),
+      unit: saved?.unit ?? unit,
+      sale_rate: null,
+      cost_price: null,
+      default_rate: saved?.rate ?? null,
+      default_cost: saved?.cost_price ?? null,
+      last_rate: null,
+      last_date: null,
+      last_unit: null,
+      quantity: 0,
+    };
+    rows.set(key, row);
+    return row;
+  };
+
+  const yearAgo = addDays(getTodayDateStr(), -365);
+  for (const x of [...sales].sort((a, b) => a.sale_date.localeCompare(b.sale_date))) {
+    if (x.is_opening) continue;
+    const row = rowFor(x.material, x.unit);
+    // Sorted oldest first, so the last one seen is the latest
+    row.last_rate = x.rate;
+    row.last_date = x.sale_date;
+    row.last_unit = x.unit;
+    if (x.sale_date >= yearAgo) row.quantity += convertQuantity(x.quantity, x.unit, row.unit) ?? 0;
+  }
+  for (const p of prices) {
+    const row = rowFor(p.material, p.unit);
+    row.unit = p.unit;
+    row.sale_rate = p.sale_rate;
+    row.cost_price = p.cost_price;
+  }
+  return [...rows.values()].sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? '') || a.material.localeCompare(b.material));
+}
+
+/** Customers with their own prices: how many products each, A–Z */
+export async function getCustomersWithPrices(): Promise<{ id: string; name: string; count: number }[]> {
+  const ctx = await getCtx();
+  const prices = ctx ? await fetchCustomerPrices(ctx) : getDemoData().customerPrices;
+  const parties = await getParties();
+  const counts = new Map<string, number>();
+  for (const p of prices) counts.set(p.customer_id, (counts.get(p.customer_id) ?? 0) + 1);
+  return parties.filter((p) => counts.has(p.id)).map((p) => ({ id: p.id, name: p.name, count: counts.get(p.id)! }));
+}
+
+/**
+ * Saves a customer's own prices. A product with neither a sale rate nor a cost price is
+ * removed from their list (the general prices apply again).
+ */
+export async function saveCustomerPrices(customerId: string, items: CustomerPriceInput[]): Promise<void> {
+  const ctx = await getCtx();
+  await assertParty(ctx, customerId, 'customer');
+  const keep = items.filter((i) => i.sale_rate !== null || i.cost_price !== null);
+  const drop = items.filter((i) => i.sale_rate === null && i.cost_price === null).map((i) => priceKey(i.material));
+  const updated_at = new Date().toISOString();
+
+  if (!ctx) {
+    const d = getDemoData();
+    d.customerPrices = d.customerPrices.filter((p) => !(p.customer_id === customerId && drop.includes(priceKey(p.material))));
+    for (const i of keep) {
+      const existing = d.customerPrices.find((p) => p.customer_id === customerId && priceKey(p.material) === priceKey(i.material));
+      if (existing) Object.assign(existing, { ...i, material: existing.material, updated_at });
+      else d.customerPrices.push({ id: newDemoId('cpr'), customer_id: customerId, ...i, material: i.material.trim(), updated_at });
+    }
+    return;
+  }
+
+  // The unique index is on lower(trim(material)), so match existing rows by that key
+  const existing = await fetchCustomerPrices(ctx, customerId);
+  const byKey = new Map(existing.map((p) => [priceKey(p.material), p]));
+  const removeIds = drop.map((k) => byKey.get(k)?.id).filter((id): id is string => Boolean(id));
+  if (removeIds.length) {
+    const { error } = await ctx.db.from('customer_prices').delete().eq('owner_id', ctx.ownerId).in('id', removeIds);
+    if (error) throw schemaError(error);
+  }
+  for (const i of keep) {
+    const found = byKey.get(priceKey(i.material));
+    const values = { unit: i.unit, sale_rate: i.sale_rate, cost_price: i.cost_price, updated_at };
+    const { error } = found
+      ? await ctx.db.from('customer_prices').update(values).eq('owner_id', ctx.ownerId).eq('id', found.id)
+      : await ctx.db.from('customer_prices').insert({ ...values, owner_id: ctx.ownerId, customer_id: customerId, material: i.material.trim() });
+    if (error) throw schemaError(error);
+  }
 }
 
 // ---------------------------------------------------------------------------

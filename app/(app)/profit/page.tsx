@@ -94,7 +94,10 @@ export default async function ProfitPage({ searchParams }: { searchParams: Promi
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <Statement report={report} />
-        <ItemMargins report={report} />
+        <div className="space-y-4">
+          <ItemMargins report={report} />
+          <CustomerMargins report={report} />
+        </div>
       </div>
 
       <section className={`${cardClass} overflow-hidden`}>
@@ -291,7 +294,7 @@ function ItemMargins({ report }: { report: ProfitReport }) {
       <div className="px-4 py-3 border-b border-zinc-100 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-900">Item-wise margin</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">Products sold, at their cost prices</p>
+          <p className="text-xs text-zinc-500 mt-0.5">Products sold, at their cost prices (a customer&apos;s own first)</p>
         </div>
         <Link href="/profit/cost-prices" className="text-xs font-medium text-emerald-700 hover:text-emerald-800 whitespace-nowrap">
           Cost prices
@@ -309,7 +312,7 @@ function ItemMargins({ report }: { report: ProfitReport }) {
                   <p className="text-sm font-medium text-zinc-900 truncate">{i.name}</p>
                   <p className="text-xs text-zinc-500">
                     {formatQuantity(i.quantity)} {i.unit} · sold {formatRs(i.sales)}
-                    {i.costPrice !== null && ` · cost ${formatRs(i.costPrice)}/${i.unit}`}
+                    {i.customerPriced ? ' · cost varies by customer' : i.costPrice !== null && ` · cost ${formatRs(i.costPrice)}/${i.unit}`}
                   </p>
                 </div>
                 {margin === null ? (
@@ -334,6 +337,61 @@ function ItemMargins({ report }: { report: ProfitReport }) {
               </span>
             </li>
           )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Each customer's sales this month and the margin on them, at their cost prices */
+function CustomerMargins({ report }: { report: ProfitReport }) {
+  const { customers } = report;
+  return (
+    <section className={`${cardClass} overflow-hidden`}>
+      <div className="px-4 py-3 border-b border-zinc-100">
+        <h2 className="text-sm font-semibold text-zinc-900">Customer-wise margin</h2>
+        <p className="text-xs text-zinc-500 mt-0.5">Sales after returns, at each customer&apos;s cost prices</p>
+      </div>
+      {customers.length === 0 ? (
+        <p className="px-4 py-8 text-sm text-zinc-500 text-center">No sales in {formatMonth(report.month.month)}.</p>
+      ) : (
+        <ul className="divide-y divide-zinc-100">
+          {customers.map((c) => {
+            const net = c.sales - c.returned;
+            const costed = net - c.uncosted;
+            const margin = costed - c.cost;
+            return (
+              <li key={c.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <Link href={`/customers/${c.id}`} className="text-sm font-medium text-zinc-900 hover:text-emerald-700 truncate block">
+                    {c.name}
+                  </Link>
+                  <p className="text-xs text-zinc-500">
+                    Sold {formatRs(net)}
+                    {c.returned > 0 && ` (after ${formatRs(c.returned)} returns)`}
+                    {c.uncosted > 0 && (
+                      <>
+                        {' · '}
+                        <Link href={`/customers/${c.id}/prices`} className="text-amber-700 hover:text-amber-800">
+                          {formatRs(c.uncosted)} without cost price
+                        </Link>
+                      </>
+                    )}
+                  </p>
+                </div>
+                {costed > 0 ? (
+                  <div className="text-right">
+                    <p className={`text-sm font-semibold tabular-nums ${margin < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{formatRs(margin)}</p>
+                    <p className="text-xs text-zinc-500 tabular-nums">{Math.round((margin / costed) * 100)}%</p>
+                  </div>
+                ) : (
+                  <Link href={`/customers/${c.id}/prices`} className="text-xs font-medium text-amber-700 hover:text-amber-800 whitespace-nowrap">
+                    Set prices
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

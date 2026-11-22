@@ -1,17 +1,20 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { BusinessEntrySchema, CostPriceSchema, MonthSchema, StockCountSchema, firstIssue } from '@/lib/validators';
+import { BusinessEntrySchema, CostPriceSchema, CustomerPricesSchema, MonthSchema, StockCountSchema, firstIssue } from '@/lib/validators';
 import {
   createBusinessEntry,
   deleteBusinessEntry,
   deleteStockCount,
+  getCustomerPriceList,
+  saveCustomerPrices,
   saveStockCount,
   setCostPrice,
   updateBusinessEntry,
 } from '@/lib/queries';
 import { requireUser } from '@/lib/auth';
 import { Material } from '@/lib/types';
+import { toCustomerRates, type CustomerRate } from '@/lib/profit';
 
 type Result = { success: true } | { success: false; error: string };
 
@@ -92,5 +95,31 @@ export async function saveCostPriceAction(
     return { success: true, material };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Failed to save the cost price' };
+  }
+}
+
+/** Saves a customer's own sale rates and cost prices; a product with neither goes back to the general prices */
+export async function saveCustomerPricesAction(customerId: string, items: unknown): Promise<Result> {
+  try {
+    await requireUser();
+    const parsed = CustomerPricesSchema.safeParse(items);
+    if (!parsed.success) return { success: false, error: firstIssue(parsed.error) };
+    await saveCustomerPrices(customerId, parsed.data);
+    revalidatePath('/', 'layout');
+    return { success: true };
+  } catch (err) {
+    return failure(err, 'Failed to save the prices');
+  }
+}
+
+/** A customer's rates for the sale form, by product name (lower case) */
+export async function getCustomerRatesAction(
+  customerId: string
+): Promise<{ success: true; rates: Record<string, CustomerRate> } | { success: false; error: string }> {
+  try {
+    await requireUser();
+    return { success: true, rates: toCustomerRates(await getCustomerPriceList(customerId)) };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to load the prices' };
   }
 }

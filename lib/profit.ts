@@ -1,4 +1,4 @@
-import { BusinessEntry, BusinessEntryKind, CreditSale, ItemMargin, Material, Payment, ProfitMonth, StockCount } from './types';
+import { BusinessEntry, BusinessEntryKind, CreditSale, CustomerMargin, CustomerPrice, CustomerPriceRow, ItemMargin, Material, Payment, ProfitMonth, StockCount } from './types';
 import { shiftMonth, unitGroup } from './format';
 
 // Profit and loss, worked out the same way in demo mode and live mode.
@@ -7,16 +7,18 @@ import { shiftMonth, unitGroup } from './format';
 //   * 'stock':    opening stock + purchases − closing stock, when the month and the month
 //                 before both have a stock count. Exact: it includes waste and every cost
 //                 that went into stock.
-//   * 'estimate': quantity sold × the product's cost price, until the month is counted.
+//   * 'estimate': quantity sold × the product's cost price, until the month is counted. A
+//                 customer's own cost price for the product wins over the general one.
 // Customer returns lower sales (and their cost, in the estimate); vendor returns lower
 // purchases. Opening balances are not sales or purchases. Owner investment and
 // withdrawals are not income or expenses.
 
-export type ProfitSale = Pick<CreditSale, 'id' | 'kind' | 'sale_date' | 'material' | 'quantity' | 'unit' | 'amount' | 'is_opening'>;
-export type ProfitReturn = Pick<Payment, 'kind' | 'payment_date' | 'amount' | 'sale_id' | 'is_opening'>; // method 'return' only
+export type ProfitSale = Pick<CreditSale, 'id' | 'customer_id' | 'kind' | 'sale_date' | 'material' | 'quantity' | 'unit' | 'amount' | 'is_opening'>;
+export type ProfitReturn = Pick<Payment, 'customer_id' | 'kind' | 'payment_date' | 'amount' | 'sale_id' | 'is_opening'>; // method 'return' only
 export type ProfitEntry = Pick<BusinessEntry, 'kind' | 'entry_date' | 'amount' | 'category'>;
 export type ProfitCount = Pick<StockCount, 'month' | 'total'>;
 export type ProfitCost = Pick<Material, 'name' | 'unit' | 'cost_price'>;
+export type ProfitCustomerCost = Pick<CustomerPrice, 'customer_id' | 'material' | 'unit' | 'cost_price'>;
 
 export type ProfitInputs = {
   sales: ProfitSale[]; // sales and purchases (both kinds)
@@ -24,6 +26,7 @@ export type ProfitInputs = {
   entries: ProfitEntry[];
   counts: ProfitCount[];
   materials: ProfitCost[];
+  customerCosts: ProfitCustomerCost[]; // customers' own cost prices
 };
 
 /** Wording for the three kinds of business entry */
@@ -60,22 +63,41 @@ export function convertQuantity(qty: number, from: string, to: string): number |
   return a.key === b.key ? (qty * a.factor) / b.factor : null;
 }
 
-/** Saved products by name (case-insensitive) */
-export function costIndex(materials: ProfitCost[]): Map<string, ProfitCost> {
-  return new Map(materials.map((m) => [nameKey(m.name), m]));
+/** Cost prices: each customer's own, and the general ones of the saved products */
+export type CostBook = { general: Map<string, ProfitCost>; customer: Map<string, { unit: string; cost_price: number }> };
+
+const customerKey = (customerId: string, material: string) => `${customerId}|${nameKey(material)}`;
+
+export function costBook(materials: ProfitCost[], customerCosts: ProfitCustomerCost[] = []): CostBook {
+  const customer = new Map<string, { unit: string; cost_price: number }>();
+  for (const c of customerCosts) {
+    if (c.cost_price !== null && c.cost_price !== undefined) {
+      customer.set(customerKey(c.customer_id, c.material), { unit: c.unit, cost_price: Number(c.cost_price) });
+    }
+  }
+  return { general: new Map(materials.map((m) => [nameKey(m.name), m])), customer };
 }
 
-/** What a sale cost you, from its product's cost price; null without a usable cost price */
-export function saleCost(sale: Pick<ProfitSale, 'material' | 'quantity' | 'unit'>, costs: Map<string, ProfitCost>): number | null {
-  const product = costs.get(nameKey(sale.material));
+/** The cost price used for a customer's sale of a product: theirs, else the general one */
+export function costPriceFor(customerId: string, material: string, book: CostBook): { unit: string; cost_price: number; own: boolean } | null {
+  const own = book.customer.get(customerKey(customerId, material));
+  if (own) return { ...own, own: true };
+  const product = book.general.get(nameKey(material));
   if (!product || product.cost_price === null || product.cost_price === undefined) return null;
-  const qty = convertQuantity(Number(sale.quantity), sale.unit, product.unit);
-  return qty === null ? null : qty * Number(product.cost_price);
+  return { unit: product.unit, cost_price: Number(product.cost_price), own: false };
+}
+
+/** What a sale cost you, at its cost price; null without a usable cost price */
+export function saleCost(sale: Pick<ProfitSale, 'customer_id' | 'material' | 'quantity' | 'unit'>, book: CostBook): number | null {
+  const price = costPriceFor(sale.customer_id, sale.material, book);
+  if (!price) return null;
+  const qty = convertQuantity(Number(sale.quantity), sale.unit, price.unit);
+  return qty === null ? null : qty * price.cost_price;
 }
 
 /** Profit for each month in `months` (YYYY-MM, any order) */
 export function buildProfitMonths(months: string[], input: ProfitInputs): ProfitMonth[] {
-  const costs = costIndex(input.materials);
+  const costs = costBook(input.materials, input.customerCosts);
   const counts = new Map(input.counts.map((c) => [c.month, Number(c.total)]));
   const salesById = new Map(input.sales.map((s) => [s.id, s]));
 
@@ -161,14 +183,13 @@ export function buildProfitMonths(months: string[], input: ProfitInputs): Profit
 }
 
 /** Each product sold in `month`: quantity, sales, cost at its cost price and margin */
-export function buildItemMargins(month: string, sales: ProfitSale[], materials: ProfitCost[]): ItemMargin[] {
-  const costs = costIndex(materials);
+export function buildItemMargins(month: string, sales: ProfitSale[], costs: CostBook): ItemMargin[] {
   const items = new Map<string, ItemMargin & { complete: boolean }>();
 
   for (const s of sales) {
     if (s.kind !== 'customer' || s.is_opening || !inMonth(s.sale_date, month)) continue;
     const key = nameKey(s.material);
-    const product = costs.get(key);
+    const product = costs.general.get(key);
     const item = items.get(key) ?? {
       key,
       name: product?.name ?? s.material.trim(),
@@ -176,9 +197,11 @@ export function buildItemMargins(month: string, sales: ProfitSale[], materials: 
       quantity: 0,
       sales: 0,
       costPrice: product?.cost_price ?? null,
+      customerPriced: false,
       cost: 0,
       complete: true,
     };
+    if (costPriceFor(s.customer_id, s.material, costs)?.own) item.customerPriced = true;
     item.quantity += convertQuantity(Number(s.quantity), s.unit, item.unit) ?? 0;
     item.sales += Number(s.amount);
     const cost = saleCost(s, costs);
@@ -190,6 +213,47 @@ export function buildItemMargins(month: string, sales: ProfitSale[], materials: 
   return [...items.values()]
     .map(({ complete, ...item }) => ({ ...item, cost: complete ? item.cost : null }))
     .sort((a, b) => b.sales - a.sales || a.name.localeCompare(b.name));
+}
+
+/**
+ * Each customer's sales in `month` (after their returns), what those goods cost at the cost
+ * prices (theirs first) and the margin. Sales without a cost price are counted apart.
+ */
+export function buildCustomerMargins(
+  month: string,
+  sales: ProfitSale[],
+  returns: ProfitReturn[],
+  book: CostBook,
+  names: Map<string, string>
+): CustomerMargin[] {
+  const rows = new Map<string, CustomerMargin & { costedSales: number }>();
+  const row = (id: string) => {
+    const r = rows.get(id) ?? { id, name: names.get(id) ?? 'Unknown', sales: 0, returned: 0, cost: 0, uncosted: 0, costedSales: 0 };
+    rows.set(id, r);
+    return r;
+  };
+  for (const s of sales) {
+    if (s.kind !== 'customer' || s.is_opening || !inMonth(s.sale_date, month)) continue;
+    const r = row(s.customer_id);
+    r.sales += Number(s.amount);
+    const cost = saleCost(s, book);
+    if (cost === null) r.uncosted += Number(s.amount);
+    else {
+      r.cost += cost;
+      r.costedSales += Number(s.amount);
+    }
+  }
+  // Returned goods come back at the customer's own cost ratio
+  const ratios = new Map([...rows.values()].map((r) => [r.id, r.costedSales > 0 ? r.cost / r.costedSales : 0]));
+  for (const ret of returns) {
+    if (ret.kind !== 'customer' || ret.is_opening || !inMonth(ret.payment_date, month)) continue;
+    const r = row(ret.customer_id);
+    r.returned += Number(ret.amount);
+    r.cost -= Number(ret.amount) * (ratios.get(r.id) ?? 0);
+  }
+  return [...rows.values()]
+    .map((r) => ({ id: r.id, name: r.name, sales: r.sales, returned: r.returned, cost: r.cost, uncosted: r.uncosted }))
+    .sort((a, b) => b.sales - b.returned - (a.sales - a.returned) || a.name.localeCompare(b.name));
 }
 
 /** A month's expenses by category, largest first */
@@ -208,4 +272,16 @@ export function expensesByCategory(month: string, entries: ProfitEntry[]): { cat
 /** Stock item amounts and the count's total, rounded to paisa */
 export function stockTotal(items: { quantity: number; rate: number }[]): number {
   return Math.round(total(items, (i) => i.quantity * i.rate) * 100) / 100;
+}
+
+/** The rate the sale form fills in for a customer's product: their own rate, else the last one charged */
+export type CustomerRate = { rate: number; unit: string; source: 'own' | 'last'; date: string | null };
+
+export function toCustomerRates(rows: CustomerPriceRow[]): Record<string, CustomerRate> {
+  const rates: Record<string, CustomerRate> = {};
+  for (const r of rows) {
+    if (r.sale_rate !== null) rates[r.key] = { rate: r.sale_rate, unit: r.unit, source: 'own', date: null };
+    else if (r.last_rate !== null) rates[r.key] = { rate: r.last_rate, unit: r.last_unit ?? r.unit, source: 'last', date: r.last_date };
+  }
+  return rates;
 }
